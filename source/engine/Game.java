@@ -55,12 +55,7 @@ public class Game implements GameLogic {
 
 	@Override
 	public void input(Window window) {
-		if (!window.events) {
-			screenSize = new Vector2f(window.getWidth(), window.getHeight());
-			mouse = null;
-			window.resetScroll();
-			return;
-		}
+		
 		if (window.keyPressed(GLFW.GLFW_KEY_A) || window.keyPressed(GLFW.GLFW_KEY_LEFT)) {
 			cam.moveH(-1);
 		}
@@ -81,6 +76,11 @@ public class Game implements GameLogic {
 			cam.reset();
 		}
 		screenSize = new Vector2f(window.getWidth(), window.getHeight());
+		if (!window.events) {
+			mouse = null;
+			return;
+		}
+		
 		mouse = new MouseInfo(window);
 		if (mouse.scroll() != 0) {
 			cam.zoom(mouse.scroll() < 0 ? 1.1f : 0.95f);

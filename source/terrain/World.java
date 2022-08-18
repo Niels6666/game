@@ -37,6 +37,7 @@ import display.Debug;
 import engine.Game;
 import opengl.FBO;
 import opengl.FBO.FBOAttachment;
+import opengl.OpenGLSurface;
 import opengl.Query;
 import opengl.QueryBuffer;
 import opengl.Shader;
@@ -72,10 +73,10 @@ public class World {
 	TextureAtlas blockAtlas;
 	TextureAtlas blockGlowAtlas;
 
-//	FBO fbo;
+	FBO fbo;
 	
-	public List<Texture> bloomCascade;
-	public Texture colorTexture;
+	public List<OpenGLSurface> bloomCascade;
+	//public Texture colorTexture;
 
 	public Texture postProcessTex;
 
@@ -160,9 +161,8 @@ public class World {
 		worldBuffer.storeData(chunkIDs, GL46C.GL_STATIC_DRAW);
 		worldBuffer.unbind();
 
-		worldShader = new Shader("shaders/blockrenderer.cs");
-		
-//		worldShader = new Shader("shaders/blockrenderer.vs", "shaders/blockrenderer.fs");
+		//worldShader = new Shader("shaders/blockrenderer.cs");
+		worldShader = new Shader("shaders/blockrenderer.vs", "shaders/blockrenderer.fs");
 		worldShader.finishInit();
 		worldShader.init_uniforms(List.of("zoom", "cameraPos", "screenSize", "time", "glowPower"));
 
@@ -182,18 +182,18 @@ public class World {
 		quadShader = new Shader("shaders/quad.vs", "shaders/quad.fs");
 		quadShader.finishInit();
 
-//		fbo = new FBO("WorldFBO", 0);
-//		fbo.bind();
-//		fbo.addTextureAttachment("COLOR", FBO.AttachmentFormat.RGBA16F);
-//		fbo.addTextureAttachment("LIGHT", FBO.AttachmentFormat.RGBA16F);
-//		fbo.unbind();
-//
-//		if(!fbo.finish()){
-//			throw new Exception("Erreur lors de la création de WorldFBO");
-//		}
+		fbo = new FBO("WorldFBO", 0);
+		fbo.bind();
+		fbo.addTextureAttachment("COLOR", FBO.AttachmentFormat.RGBA16F);
+		fbo.addTextureAttachment("LIGHT", FBO.AttachmentFormat.RGBA16F);
+		fbo.unbind();
+
+		if(!fbo.finish()){
+			throw new Exception("Erreur lors de la création de WorldFBO");
+		}
 
 		bloomCascade = new ArrayList<>();
-		colorTexture = new Texture(1, 1, GL46C.GL_RGBA16F, GL46C.GL_NEAREST);
+		//colorTexture = new Texture(1, 1, GL46C.GL_RGBA16F, GL46C.GL_NEAREST);
 
 		blockQuad = new VAO();
 		blockQuad.bind();
@@ -305,29 +305,30 @@ public class World {
 		totalFrames++;
 
 		if (debug.rebuildBloomCascades || 
-				colorTexture.width != game.screenSize.x || 
-				colorTexture.height != game.screenSize.y) {
+				fbo.width != game.screenSize.x || 
+				fbo.height != game.screenSize.y) {
 			// resize the textures
 			int width = (int) game.screenSize.x;
 			int height = (int) game.screenSize.y;
 
-//			fbo.resize(width, height);
+			fbo.resize(width, height);
+			fbo.getAttachment("LIGHT").bindAsTexture(0, GL46C.GL_LINEAR, GL46C.GL_CLAMP_TO_EDGE);
+			fbo.getAttachment("LIGHT").unbindAsTexture(0);
 
-			colorTexture.delete();
-			colorTexture = new Texture(width, height, GL46C.GL_RGBA16F, GL46C.GL_NEAREST);
-
+			//colorTexture.delete();
+			//colorTexture = new Texture(width, height, GL46C.GL_RGBA16F, GL46C.GL_NEAREST);
 
 			postProcessTex.delete();
 			postProcessTex = new Texture(width, height, GL46C.GL_RGBA8, GL46C.GL_NEAREST);
 
 
 			for (var t : bloomCascade) {
-				t.delete();
+				((Texture)t).delete();
 			}
 			bloomCascade.clear();
 
-			//width /= 2;
-			//height /= 2;
+			width /= 2;
+			height /= 2;
 			for(int i=0; i<debug.bloomCascades; i++){
 				bloomCascade.add(new Texture(width, height, GL46C.GL_RGBA16F, GL46C.GL_LINEAR));
 				width /= 2;
@@ -358,10 +359,6 @@ public class World {
 				tmp.reserveData(Math.max(chunkBuffer.getDataLength() * 2, chunks.size() * chunkSize), GL_STATIC_DRAW);
 				tmp.unbind();
 
-				// if(chunkBuffer.getDataLength() > 0){//make sure there is something to copy
-				// GL46C.glCopyNamedBufferSubData(chunkBuffer.getID(), tmp.getID(), 0, 0,
-				// chunkBuffer.getDataLength());
-				// }
 				chunkBuffer.delete();
 				chunkBuffer = tmp;
 
@@ -386,11 +383,11 @@ public class World {
 
 		// Draw the world
 
-//		fbo.bind();
-//		fbo.setViewport();
-//		fbo.bindColorAttachments(List.of("COLOR", "LIGHT"));
-//		fbo.clearColorAttachment("COLOR", new Vector4f(0, 0, 0, 0));
-//		fbo.clearColorAttachment("LIGHT", new Vector4f(0, 0, 0, 0));
+		fbo.bind();
+		fbo.setViewport();
+		fbo.bindColorAttachments(List.of("COLOR", "LIGHT"));
+		fbo.clearColorAttachment("COLOR", new Vector4f(0, 0, 0, 0));
+		fbo.clearColorAttachment("LIGHT", new Vector4f(0, 0, 0, 0));
 
 		worldShader.start();
 		blockAtlas.bindAsTexture(0);
@@ -401,49 +398,51 @@ public class World {
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 2, Light.BVHBuffer.getID());
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 3, BlockIDs.blocksInfo.getID());
 
-		GL46C.glBindImageTexture(0, colorTexture.id, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
-		GL46C.glBindImageTexture(1, bloomCascade.get(0).id, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
+		//GL46C.glBindImageTexture(0, colorTexture.id, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
+		//GL46C.glBindImageTexture(1, bloomCascade.get(0).id, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
 
 		worldShader.loadFloat("zoom", game.getZoom());
 		worldShader.loadVec2("cameraPos", game.getOrigin());
 		worldShader.loadVec2("screenSize", game.screenSize);
 		worldShader.loadInt("time", totalFrames);
 		worldShader.loadFloat("glowPower", debug.glowPower);
+		
 
 		//draw fullscreen quad
-		//blockQuad.bind();
-		//blockQuad.bindAttribute(0);
-		//GL46C.glDrawArrays(GL46C.GL_TRIANGLE_STRIP, 0, 4);
-		//blockQuad.unbindAttribute(0);
-		//blockQuad.unbind();
+		blockQuad.bind();
+		blockQuad.bindAttribute(0);
+		GL46C.glDrawArrays(GL46C.GL_TRIANGLE_STRIP, 0, 4);
+		blockQuad.unbindAttribute(0);
+		blockQuad.unbind();
 
-		GL46C.glDispatchCompute((colorTexture.width + 15) / 16, (colorTexture.height + 15) / 16, 1);
-		GL46C.glMemoryBarrier(GL46C.GL_ALL_BARRIER_BITS);
+		//GL46C.glDispatchCompute((colorTexture.width + 15) / 16, (colorTexture.height + 15) / 16, 1);
+		//GL46C.glMemoryBarrier(GL46C.GL_ALL_BARRIER_BITS);
 
 		blockAtlas.unbindAsTexture(0);
 		blockGlowAtlas.unbindAsTexture(1);
 
-		GL46C.glBindImageTexture(0, 0, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
-		GL46C.glBindImageTexture(1, 0, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
+		//GL46C.glBindImageTexture(0, 0, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
+		//GL46C.glBindImageTexture(1, 0, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
 
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 0, 0);
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 1, 0);
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 2, 0);
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 3, 0);
 		worldShader.stop();
-//		fbo.unbind();
+		fbo.unbind();
 
 		// Bloom effect
 		if(debug.isBloomEnabled){
+			bloomCascade.add(0, fbo.getAttachment("LIGHT"));
 
 			downScale.start();
 			for (int i = 0; i < bloomCascade.size() - 1; i++) {
 				bloomCascade.get(i).bindAsTexture(0);
-				GL46C.glBindImageTexture(0, bloomCascade.get(i + 1).id, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
+				GL46C.glBindImageTexture(0, bloomCascade.get(i + 1).getID(), 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
 
 				GL46C.glDispatchCompute(
-						(bloomCascade.get(i + 1).width + 15) / 16,
-						(bloomCascade.get(i + 1).height + 15) / 16, 
+						(bloomCascade.get(i + 1).getWidth() + 15) / 16,
+						(bloomCascade.get(i + 1).getHeight() + 15) / 16, 
 						1);
 				GL46C.glMemoryBarrier(GL46C.GL_ALL_BARRIER_BITS);
 			}
@@ -454,17 +453,18 @@ public class World {
 
 			for (int i = bloomCascade.size() - 2; i >= 0; i--) {
 				bloomCascade.get(i + 1).bindAsTexture(0);
-				GL46C.glBindImageTexture(0, bloomCascade.get(i).id, 0, false, 0, GL46C.GL_READ_WRITE, GL46C.GL_RGBA16F);
+				GL46C.glBindImageTexture(0, bloomCascade.get(i).getID(), 0, false, 0, GL46C.GL_READ_WRITE, GL46C.GL_RGBA16F);
 
 				GL46C.glDispatchCompute((
-						bloomCascade.get(i).width + 15) / 16, 
-						(bloomCascade.get(i).height + 15) / 16, 
+						bloomCascade.get(i).getWidth() + 15) / 16, 
+						(bloomCascade.get(i).getHeight() + 15) / 16, 
 						1);
 				GL46C.glMemoryBarrier(GL46C.GL_ALL_BARRIER_BITS);
 			}
 			bloomCascade.get(0).unbindAsTexture(0);
 			upScale.stop();
 
+			bloomCascade.remove(0);
 		}
 
 		// Tone mapping
@@ -473,8 +473,8 @@ public class World {
 //		GL46C.glBindImageTexture(1, fbo.getAttachment("LIGHT").getID(), 0, false, 0, GL46C.GL_READ_ONLY, GL46C.GL_RGBA16F);
 	
 	
-		GL46C.glBindImageTexture(0, colorTexture.id, 0, false, 0, GL46C.GL_READ_ONLY, GL46C.GL_RGBA16F);
-		GL46C.glBindImageTexture(1, bloomCascade.get(0).id, 0, false, 0, GL46C.GL_READ_ONLY, GL46C.GL_RGBA16F);
+		GL46C.glBindImageTexture(0, fbo.getAttachment("COLOR").getID(), 0, false, 0, GL46C.GL_READ_ONLY, GL46C.GL_RGBA16F);
+		GL46C.glBindImageTexture(1, fbo.getAttachment("LIGHT").getID(), 0, false, 0, GL46C.GL_READ_ONLY, GL46C.GL_RGBA16F);
 		GL46C.glBindImageTexture(2, postProcessTex.id, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA8);
 
 		postProcessShader.start();

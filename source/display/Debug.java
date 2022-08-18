@@ -31,11 +31,11 @@ public class Debug implements Component {
 	private Game game;
 
 	public AllTextures selected_texture = AllTextures.postprocess;
-	public boolean isBloomEnabled = false;
-	public float bloomWeight = 1.0f;
-	public float toneMappingExposure = 0.2f;
-	public float glowPower = 30.0f;
+	public boolean isBloomEnabled = true;
 	public int bloomCascades = 10;
+	public float bloomWeight = 1.0f;
+	public float toneMappingExposure = 0.25f;
+	public float glowPower = 1.0f;
 	public boolean rebuildBloomCascades = false;
 
 	public Debug(NkContext ctx, Game game) {

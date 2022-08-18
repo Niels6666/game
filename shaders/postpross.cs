@@ -13,10 +13,9 @@ void main(){
     vec4 color = imageLoad(colorOutput, ivec2(gl_GlobalInvocationID.xy));
     vec4 bloomLight = imageLoad(lightOutput, ivec2(gl_GlobalInvocationID.xy));
 
-    bloomLight.a = 1.0;
-    color = color * bloomLight;
-
+    color += bloomLight; // add the bloom
     color = color / (color + exposure);
+    color.a = 1.0f;
 
     imageStore(postprocessOutput, ivec2(gl_GlobalInvocationID.xy), color);
 

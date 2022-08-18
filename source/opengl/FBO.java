@@ -331,7 +331,7 @@ public class FBO {
 		}
 	}
 
-	public static class FBOAttachment {
+	public static class FBOAttachment implements OpenGLSurface{
 		int ID;
 		boolean is_texture;// it is a renderbuffer otherwise
 		boolean is_multisampled;
@@ -339,10 +339,12 @@ public class FBO {
 		String name;
 		int colorAttachmentNumber;// enum
 		int target;
+		int width;
+		int height;
 
-		FBOAttachment(int ID, boolean isTexture, boolean is_multisampled, AttachmentFormat format, String name,
-				int colorAttachmentNumber, int target) {
-
+		FBOAttachment(int ID, boolean isTexture, boolean is_multisampled, 
+		AttachmentFormat format, String name,
+				int colorAttachmentNumber, int target, int width, int height) {
 			this.ID = ID;
 			this.is_texture = isTexture;
 			this.is_multisampled = is_multisampled;
@@ -350,7 +352,8 @@ public class FBO {
 			this.name = name;
 			this.colorAttachmentNumber = colorAttachmentNumber;
 			this.target = target;
-
+			this.width = width;
+			this.height = height;
 		}
 
 		public void bind() {
@@ -361,7 +364,8 @@ public class FBO {
 			GL46C.glBindTexture(target, 0);
 		}
 
-		public void bindAsTexture(int textureUnit) throws Exception {
+		@Override
+		public void bindAsTexture(int textureUnit) {
 			if (!is_texture) {
 				throw new IllegalArgumentException("Error, the FBOAttachment " + name + " isn't a texture");
 			}
@@ -369,7 +373,7 @@ public class FBO {
 			GL46C.glBindTexture(target, ID);
 		}
 
-		public void bindAsTexture(int textureUnit, int filter, int border) throws Exception {
+		public void bindAsTexture(int textureUnit, int filter, int border) {
 			bindAsTexture(textureUnit);
 
 			if (is_multisampled) {
@@ -382,6 +386,7 @@ public class FBO {
 			GL46C.glTexParameteri(target, GL46C.GL_TEXTURE_WRAP_T, border);
 		}
 
+		@Override
 		public void unbindAsTexture(int textureUnit) {
 			if (!is_texture) {
 				throw new IllegalArgumentException("Error, the FBOAttachment " + name + " isn't a texture");
@@ -416,6 +421,16 @@ public class FBO {
 
 		public int getTarget() {
 			return target;
+		}
+
+		@Override
+		public int getWidth() {
+			return width;
+		}
+
+		@Override
+		public int getHeight() {
+			return height;
 		}
 
 	}
@@ -543,6 +558,9 @@ public class FBO {
         bind();
 
         for (FBOAttachment attachment : attachments.values()) {
+			attachment.width = width;
+			attachment.height = height;
+
             if (attachment.isTexture()) {
 
                 GL46C.glBindTexture(attachment.getTarget(), attachment.getID());
@@ -614,8 +632,8 @@ public class FBO {
                     textureID, 0);
         }
 
-        FBOAttachment attachment = new FBOAttachment(textureID, true, MULTISAMPLE_COUNT != 0, format, name,
-                colorAttachmentNumber, target);
+        FBOAttachment attachment = new FBOAttachment(textureID, true, MULTISAMPLE_COUNT != 0, 
+			format, name, colorAttachmentNumber, target, width, height);
 
         this.attachments.put(name, attachment);
 

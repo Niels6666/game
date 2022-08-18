@@ -101,7 +101,7 @@ vec4 illumination(vec2 worldPos){
                 float r = getDynamicRadius(n.radius);
 				
                 float power = max(1.0f - d / r, 0.0);
-				
+
 				vec2 dir = n.direction;
 				float cosAngleHalf = n.angle;
 				
@@ -133,9 +133,10 @@ void main(){
                 chunkCoords.x < chunksPerWorld && chunkCoords.y < chunksPerWorld;
                 
 	vec4 out_Color = vec4(0.0);
+
+    lightOutput = vec4(0, 0, 0, 0);
     if(!insideWorld){
         colorOutput = vec4(vec3(0.2), 1);
-        lightOutput = vec4(0, 0, 0, 0);
         return;
     }
     
@@ -161,8 +162,9 @@ void main(){
             glowColor.grb *= glowColor.a * glowPower;
 
             vec4 lightPower = illumination(worldCoords) + glowColor;
-            
-			lightOutput = lightPower;
+
+            colorOutput *= lightPower;
+            lightOutput += glowColor;
         }
     }else{
     	colorOutput = vec4(0.0, 0.0, 0.0, 1);

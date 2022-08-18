@@ -17,7 +17,6 @@ import static org.lwjgl.opengl.GL12C.GL_CLAMP_TO_EDGE;
 import static org.lwjgl.opengl.GL13C.GL_TEXTURE0;
 import static org.lwjgl.opengl.GL13C.glActiveTexture;
 import static org.lwjgl.opengl.GL42C.glTexStorage2D;
-import static org.lwjgl.opengl.GL44C.GL_MIRROR_CLAMP_TO_EDGE;
 import static org.lwjgl.opengl.GL45C.glCreateTextures;
 
 import java.io.IOException;
@@ -25,7 +24,7 @@ import java.nio.*;
 
 import org.lwjgl.stb.STBImage;
 
-public class Texture {
+public class Texture implements OpenGLSurface {
 	public int id;
 	public int width;
 	public int height;
@@ -97,6 +96,21 @@ public class Texture {
 
 	public void delete() {
 		glDeleteTextures(id);
+	}
+
+	@Override
+	public int getID() {
+		return id;
+	}
+
+	@Override
+	public int getWidth() {
+		return width;
+	}
+
+	@Override
+	public int getHeight() {
+		return height;
 	}
 
 }
