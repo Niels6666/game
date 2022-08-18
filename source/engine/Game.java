@@ -16,12 +16,14 @@ import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL46C;
 
+import display.Debug;
 import opengl.Camera;
 import opengl.MouseInfo;
-import terrain.BlockIDs;
+import terrain.Block;
+import terrain.Player;
 import terrain.World;
 
-public class Game implements GameLogic {
+public class Game {
 	public World w;
 	public Camera cam;
 	public MouseInfo mouse;
@@ -30,7 +32,7 @@ public class Game implements GameLogic {
 	public Game() {
 	}
 
-	public Vector2f getOrigin() {
+	public Vector2f cameraPos() {
 		return new Vector2f(cam.pos);
 	}
 
@@ -38,7 +40,6 @@ public class Game implements GameLogic {
 		return cam.zoom;
 	}
 
-	@Override
 	public void init() throws Exception {
 		GL11.glClearColor(1f, 0f, 0f, 1f);
 		GL46C.glEnable(GL46C.GL_DEBUG_OUTPUT);
@@ -47,40 +48,48 @@ public class Game implements GameLogic {
 		System.out.println(GL46C.glGetString(GL46C.GL_VENDOR));
 		System.out.println(GL46C.glGetString(GL46C.GL_RENDERER));
 		System.out.println(GL46C.glGetString(GL46C.GL_SHADING_LANGUAGE_VERSION));
-		System.out.println(GL46C.glGetString(GL46C.GL_EXTENSIONS));
+		// System.out.println(GL46C.glGetString(GL46C.GL_EXTENSIONS));
 
 		cam = new Camera();
 		w = new World("save");
 	}
 
-	@Override
 	public void input(Window window) {
+		if (window.gui.debug.freeCamera) {
+			if (window.keyPressed(GLFW.GLFW_KEY_A) || window.keyPressed(GLFW.GLFW_KEY_LEFT)) {
+				cam.moveH(-1);
+			}
+
+			if (window.keyPressed(GLFW.GLFW_KEY_D) || window.keyPressed(GLFW.GLFW_KEY_RIGHT)) {
+				cam.moveH(1);
+			}
+
+			if (window.keyPressed(GLFW.GLFW_KEY_W) || window.keyPressed(GLFW.GLFW_KEY_UP)) {
+				cam.moveV(-1);
+			}
+
+			if (window.keyPressed(GLFW.GLFW_KEY_S) || window.keyPressed(GLFW.GLFW_KEY_DOWN)) {
+				cam.moveV(1);
+			}
+
+			if (window.keyPressed(GLFW.GLFW_KEY_ENTER)) {
+				cam.reset();
+			}
+		} else {
+			
+			Vector2f target = w.entities.get(0).getPosition();
+			cam.pos.lerp(target, 0.1f);
+
+			cam.pos.mul(20).round().div(20);
+
+		}
 		
-		if (window.keyPressed(GLFW.GLFW_KEY_A) || window.keyPressed(GLFW.GLFW_KEY_LEFT)) {
-			cam.moveH(-1);
-		}
-
-		if (window.keyPressed(GLFW.GLFW_KEY_D) || window.keyPressed(GLFW.GLFW_KEY_RIGHT)) {
-			cam.moveH(1);
-		}
-
-		if (window.keyPressed(GLFW.GLFW_KEY_W) || window.keyPressed(GLFW.GLFW_KEY_UP)) {
-			cam.moveV(-1);
-		}
-
-		if (window.keyPressed(GLFW.GLFW_KEY_S) || window.keyPressed(GLFW.GLFW_KEY_DOWN)) {
-			cam.moveV(1);
-		}
-
-		if (window.keyPressed(GLFW.GLFW_KEY_ENTER)) {
-			cam.reset();
-		}
 		screenSize = new Vector2f(window.getWidth(), window.getHeight());
 		if (!window.events) {
 			mouse = null;
 			return;
 		}
-		
+
 		mouse = new MouseInfo(window);
 		if (mouse.scroll() != 0) {
 			cam.zoom(mouse.scroll() < 0 ? 1.1f : 0.95f);
@@ -88,18 +97,17 @@ public class Game implements GameLogic {
 		window.resetScroll();
 	}
 
-	@Override
-	public void update() {
+	public void update(Window window) {
 		if (mouse != null) {
-			BlockIDs dig = BlockIDs.CANDLE;
+			Block dig = Block.CANDLE;
 			if (mouse.rmb()) {
-				dig = BlockIDs.URANIUM;
+				dig = Block.AIR;
 			}
-			w.update(getOrigin(), getZoom(), new Vector2f(screenSize), mouse.pos(), mouse.lmb() || mouse.rmb(), dig);
+			w.update(this, window, cameraPos(), getZoom(), new Vector2f(screenSize), new Vector2f(mouse.pos()),
+					mouse.lmb() || mouse.rmb(), dig);
 		}
 	}
 
-	@Override
 	public void render(Window window) {
 		w.render(this, window.gui.debug);
 	}
@@ -108,7 +116,6 @@ public class Game implements GameLogic {
 		w.save();
 	}
 
-	@Override
 	public void setWindowTitle(Window window) {
 		if (window.gui.debug != null) {
 			window.gui.debug.fps = w.frames;

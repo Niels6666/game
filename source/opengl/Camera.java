@@ -30,8 +30,8 @@ public class Camera {
 		pos.add(new Vector2f(x, y).mul(zoom));
 	}
 
-	public void setLoc(float x, float y) {
-		pos.set(x, y);
+	public void setLoc(Vector2f v) {
+		pos.set(v.x, v.y);
 	}
 
 	/**

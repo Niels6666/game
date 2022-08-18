@@ -10,13 +10,13 @@ import org.lwjgl.opengl.GL11;
 public class GameEngine implements Runnable {
 	private final Thread gameLoopThread;
 	private Window window;
-	private GameLogic gameLogic;
+	private Game game;
 	private long lastTime = System.currentTimeMillis();
 
-	public GameEngine(String windowTitle, int width, int height, GameLogic gameLogic) throws Exception {
+	public GameEngine(String windowTitle, int width, int height) throws Exception {
 		gameLoopThread = new Thread(this, "GAME_LOOP_THREAD");
 		window = new Window(width, height, windowTitle);
-		this.gameLogic = gameLogic;
+		this.game = new Game();
 	}
 
 	public void start() {
@@ -25,8 +25,8 @@ public class GameEngine implements Runnable {
 
 	public void init() {
 		try {
-			window.init((Game) gameLogic);
-			gameLogic.init();
+			window.init(game);
+			game.init();
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
@@ -49,7 +49,7 @@ public class GameEngine implements Runnable {
 	private void loop() {
 		while (!GLFW.glfwWindowShouldClose(window.getID())) {
 			if (System.currentTimeMillis() - lastTime > 1000) {
-				gameLogic.setWindowTitle(window);
+				game.setWindowTitle(window);
 				lastTime = System.currentTimeMillis();
 			}
 			// first reacts to inputs, then update, finally we can render
@@ -57,22 +57,22 @@ public class GameEngine implements Runnable {
 			update();
 			render();
 		}
-		gameLogic.save();
+		game.save();
 	}
 
 	protected void input() {
 		window.beforeInput();
-		gameLogic.input(window);
+		game.input(window);
 	}
 
 	protected void update() {
-		gameLogic.update();
+		game.update(window);
 	}
 
 	protected void render() {
 		window.beforeRender();
 
-		gameLogic.render(window);
+		game.render(window);
 		window.renderGUI();
 
 		window.afterRender();

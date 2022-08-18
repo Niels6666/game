@@ -37,6 +37,9 @@ public class Debug implements Component {
 	public float toneMappingExposure = 0.25f;
 	public float glowPower = 1.0f;
 	public boolean rebuildBloomCascades = false;
+	public int scaleFactor = 2;
+	
+	public boolean freeCamera = true;
 
 	public Debug(NkContext ctx, Game game) {
 		this.game = game;
@@ -73,10 +76,13 @@ public class Debug implements Component {
 				nk_label_colored(ctx, "fps:" + fps, NK_TEXT_LEFT, info);
 
 				nk_layout_row_dynamic(ctx, height, 1);
-				nk_label_colored(ctx, "mouse position:" + window.cursorPos(), NK_TEXT_LEFT, info);
+				nk_label_colored(ctx, "mouse:" + window.cursorPos(), NK_TEXT_LEFT, info);
 
 				nk_layout_row_dynamic(ctx, height, 1);
-				nk_label_colored(ctx, "camera position:" + game.getOrigin(), NK_TEXT_LEFT, info);
+				nk_label_colored(ctx, "camera:" + game.cameraPos(), NK_TEXT_LEFT, info);
+				
+				nk_layout_row_dynamic(ctx, height, 1);
+				nk_label_colored(ctx, "player:" + game.w.entities.get(0).getPosition(), NK_TEXT_LEFT, info);
 
 				nk_layout_row_dynamic(ctx, height, 1);
 				nk_label_colored(ctx, "number of lights:" + game.w.lights.size(), NK_TEXT_LEFT, info);
@@ -93,12 +99,15 @@ public class Debug implements Component {
 				bloomWeight = nk_propertyf(ctx, "Bloom weight", 0, bloomWeight, 2, 0.01f, 0.005f);
 				toneMappingExposure = nk_propertyf(ctx, "Exposure", 0, toneMappingExposure, 100, 0.01f, 0.005f);
 				glowPower = nk_propertyf(ctx, "Glow power", 0, glowPower, 100, 0.01f, 0.005f);
-
+				scaleFactor = nk_propertyi(ctx, "scale factor", 1, scaleFactor, 5, 1, 0.005f);
 				//public float bloomWeight = 1.0f;
 				//public float toneMappingExposure = 1.0f;
 				//public int bloomCascades = 4;
 				nk_layout_row_dynamic(ctx, height, 1);
 				isBloomEnabled = nk_check_text(ctx, "enable bloom", isBloomEnabled);
+				
+				nk_layout_row_dynamic(ctx, height, 1);
+				freeCamera = nk_check_text(ctx, "free camera", freeCamera);
 
 //				nk_layout_row_dynamic(ctx, height, 1);
 //

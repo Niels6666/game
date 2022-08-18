@@ -132,8 +132,6 @@ void main(){
     bool insideWorld = chunkCoords.x >= 0 && chunkCoords.y >= 0 && 
                 chunkCoords.x < chunksPerWorld && chunkCoords.y < chunksPerWorld;
                 
-	vec4 out_Color = vec4(0.0);
-
     lightOutput = vec4(0, 0, 0, 0);
     if(!insideWorld){
         colorOutput = vec4(vec3(0.2), 1);
@@ -145,9 +143,9 @@ void main(){
     	int blockID = chunks[chunkID].blockIDs[blockCoords.x + blockCoords.y * blocksPerChunk];
 	    
         if(blockID < 0){
-            out_Color = vec4(1.0, 0.0, 1.0, 1); // should not happen
+            colorOutput = vec4(1.0, 0.0, 1.0, 1); // should not happen
         }else if(blockID == 0){
-            out_Color = vec4(0.0, 0.0, 0.0, 1);//AIR
+            colorOutput = vec4(0.0, 0.0, 0.0, 1);//AIR
         }else{
             if(blockInfos[blockID].isAnimated){
             	blockID += (time / blockInfos[blockID].animationSpeed) % blockInfos[blockID].animationLength;

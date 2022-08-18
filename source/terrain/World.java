@@ -32,9 +32,12 @@ import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL46C;
 import org.lwjgl.system.MemoryStack;
+import org.joml.Matrix4f;
 
 import display.Debug;
 import engine.Game;
+import engine.Window;
+import opengl.Camera;
 import opengl.FBO;
 import opengl.FBO.FBOAttachment;
 import opengl.OpenGLSurface;
@@ -50,33 +53,35 @@ public class World {
 	public static final int blockPixelHeight = 20;
 	public static final int blocksPerChunk = 20;
 	public static final int chunksPerWorld = 128;
+	public static final Vector2f center = new Vector2f(chunksPerWorld / 2.0f * blocksPerChunk);
 
 	int chunkIDs[] = new int[chunksPerWorld * chunksPerWorld];
 
 	List<Chunk> chunks = new ArrayList<>();
 	public HashMap<Integer, Light> lights = new HashMap<>();
+	public List<Entity> entities = new ArrayList<>();
 
 	VBO chunkBuffer;
 	VBO worldBuffer;
-	
 
 	boolean updateWorldBuffer = false;
 	Set<Chunk> chunksToUpdate = new HashSet<>();
 
 	VAO blockQuad;
 
-	Shader worldShader; // compute
-	Shader postProcessShader; // fragment
-	Shader quadShader; // fragment
+	Shader worldShader;
+	Shader entityShader;
+	Shader postProcessShader;
+	Shader quadShader;
 	Shader downScale;
 	Shader upScale;
 	TextureAtlas blockAtlas;
 	TextureAtlas blockGlowAtlas;
 
 	FBO fbo;
-	
+
 	public List<OpenGLSurface> bloomCascade;
-	//public Texture colorTexture;
+	// public Texture colorTexture;
 
 	public Texture postProcessTex;
 
@@ -88,14 +93,14 @@ public class World {
 	public int totalFrames = 0;
 
 	private long startTime = System.currentTimeMillis();
-	
+
 	List<Long> times = new ArrayList<>();
 
 	public World(String savePath) throws Exception {
 		this.savePath = savePath;
-		BlockIDs.createBlocksInfo();
-		blockAtlas = BlockIDs.atlas;
-		blockGlowAtlas = BlockIDs.glowAtlas;
+		Block.createBlocksInfo();
+		blockAtlas = Block.atlas;
+		blockGlowAtlas = Block.glowAtlas;
 
 		Arrays.fill(chunkIDs, -1);
 
@@ -114,7 +119,7 @@ public class World {
 					int ID = blocks.get(k + i * blocksPerChunk * blocksPerChunk);
 					data[k] = ID;
 
-					if (BlockIDs.isLight(ID)) {
+					if (Block.isLight(ID)) {
 						// this block is a light
 						Vector2f worldPos = new Vector2f(k % blocksPerChunk, k / blocksPerChunk)
 								.add(c.x * blocksPerChunk, c.y * blocksPerChunk).add(0.5f, 0.5f);
@@ -161,10 +166,14 @@ public class World {
 		worldBuffer.storeData(chunkIDs, GL46C.GL_STATIC_DRAW);
 		worldBuffer.unbind();
 
-		//worldShader = new Shader("shaders/blockrenderer.cs");
+		// worldShader = new Shader("shaders/blockrenderer.cs");
 		worldShader = new Shader("shaders/blockrenderer.vs", "shaders/blockrenderer.fs");
 		worldShader.finishInit();
 		worldShader.init_uniforms(List.of("zoom", "cameraPos", "screenSize", "time", "glowPower"));
+
+		entityShader = new Shader("shaders/entityRenderer.vs", "shaders/entityRenderer.fs");
+		entityShader.finishInit();
+		entityShader.init_uniforms(List.of("transform", "zoom", "cameraPos", "screenSize", "time", "glowPower"));
 
 		postProcessShader = new Shader("shaders/postpross.cs");
 		postProcessShader.finishInit();
@@ -188,12 +197,12 @@ public class World {
 		fbo.addTextureAttachment("LIGHT", FBO.AttachmentFormat.RGBA16F);
 		fbo.unbind();
 
-		if(!fbo.finish()){
+		if (!fbo.finish()) {
 			throw new Exception("Erreur lors de la création de WorldFBO");
 		}
 
 		bloomCascade = new ArrayList<>();
-		//colorTexture = new Texture(1, 1, GL46C.GL_RGBA16F, GL46C.GL_NEAREST);
+		// colorTexture = new Texture(1, 1, GL46C.GL_RGBA16F, GL46C.GL_NEAREST);
 
 		blockQuad = new VAO();
 		blockQuad.bind();
@@ -203,10 +212,82 @@ public class World {
 
 		queries = new QueryBuffer(GL46C.GL_TIME_ELAPSED);
 
+		entities.add(new Player(center));
 	}
 
-	public void update(Vector2f cameraPos, float zoom, Vector2f screenSize, Vector2f mouseCoords, boolean isClicked,
-			BlockIDs blockID) {
+	public Chunk getChunk(Vector2i blockCoords, Vector2i localBlockCoords) {
+		if (blockCoords.x < 0 || blockCoords.y < 0) {
+			return null;
+		}
+		Vector2i chunkCoords = new Vector2i(blockCoords).div(blocksPerChunk);
+		localBlockCoords.set(blockCoords).sub(new Vector2i(chunkCoords).mul(blocksPerChunk));
+
+		boolean insideWorld = chunkCoords.x >= 0 && chunkCoords.y >= 0 && chunkCoords.x < chunksPerWorld
+				&& chunkCoords.y < chunksPerWorld;
+
+		if (!insideWorld) {
+			return null;
+		}
+
+		int chunk_id = chunkIDs[chunkCoords.x + chunkCoords.y * chunksPerWorld];
+		Chunk c = null;
+		if (chunk_id == -1) {
+			chunk_id = chunks.size();
+			int blockIDs[] = new int[blocksPerChunk * blocksPerChunk];
+			Arrays.fill(blockIDs, 0);
+			c = new Chunk(chunkCoords.x, chunkCoords.y, blockIDs, chunk_id);
+			chunks.add(c);
+			chunkIDs[chunkCoords.x + chunkCoords.y * chunksPerWorld] = chunk_id;
+			updateWorldBuffer = true;
+		} else {
+			c = chunks.get(chunk_id);
+		}
+		return c;
+	}
+
+	public Block getBlock(Vector2f worldCoords) {
+		Vector2i blockCoords = new Vector2i().set(worldCoords, RoundingMode.FLOOR);
+
+		Vector2i localBlockCoords = new Vector2i();
+		Chunk c = getChunk(blockCoords, localBlockCoords);
+
+		if (c == null) {
+			return Block.AIR;
+		}
+
+		int id = c.blocks[localBlockCoords.x + localBlockCoords.y * blocksPerChunk];
+		
+		return Block.blockFromID(id);
+	}
+
+	public void setBlock(Vector2i blockCoords, Block blockID) {
+		Vector2i localBlockCoords = new Vector2i();
+		Chunk c = getChunk(blockCoords, localBlockCoords);
+
+		if (c == null) {
+			return;
+		}
+
+		chunksToUpdate.add(c);
+
+		int oldID = c.blocks[localBlockCoords.x + localBlockCoords.y * blocksPerChunk];
+		int index = (localBlockCoords.x + c.x * blocksPerChunk)
+				+ (localBlockCoords.y + c.y * blocksPerChunk) * blocksPerChunk * chunksPerWorld;
+		if (Block.isLight(oldID)) {
+			lights.remove(index).delete();
+		}
+		c.blocks[localBlockCoords.x + localBlockCoords.y * blocksPerChunk] = blockID.blockID;
+		if (blockID.isLight()) {
+			// this block is a light
+			Vector2f worldPos = new Vector2f(localBlockCoords).add(c.x * blocksPerChunk, c.y * blocksPerChunk).add(0.5f,
+					0.5f);
+			lights.put(index, new Light(worldPos, 15));
+		}
+	}
+
+	public void update(Game game, Window window, Vector2f cameraPos, float zoom, Vector2f screenSize,
+			Vector2f mouseCoords, boolean isClicked, Block blockID) {
+
 		Vector2f mouseNDCCoords = new Vector2f(mouseCoords).div(screenSize).mul(new Vector2f(2.0f, -2.0f)).add(-1.0f,
 				1.0f);
 		Vector2f mouseTexCoords = new Vector2f(mouseNDCCoords).mul(0.5f, -0.5f).add(0.5f, 0.5f);
@@ -218,65 +299,33 @@ public class World {
 		// Vector2f(blockCoords)).mul(blockPixelHeight);
 
 		int radius = 0;
+		if (blockID == Block.AIR) {
+			radius = 5;
+		}
 
-		for (int j = -radius; j <= radius; j++) {
-			for (int i = -radius; i <= radius; i++) {
-				if (i * i + j * j > radius * radius) {
-					continue;
-				}
-
-				Vector2i blockCoords = new Vector2i(mouseBlockCoords).add(i, j);
-				if (blockCoords.x < 0 || blockCoords.y < 0) {
-					continue;
-				}
-				Vector2i chunkCoords = new Vector2i(blockCoords).div(blocksPerChunk);
-				blockCoords.sub(new Vector2i(chunkCoords).mul(blocksPerChunk));
-
-				boolean insideWorld = chunkCoords.x >= 0 && chunkCoords.y >= 0 && chunkCoords.x < chunksPerWorld
-						&& chunkCoords.y < chunksPerWorld;
-
-				if (insideWorld && isClicked) {
-
-					int chunk_id = chunkIDs[chunkCoords.x + chunkCoords.y * chunksPerWorld];
-					Chunk c = null;
-					if (chunk_id == -1) {
-						chunk_id = chunks.size();
-						int blockIDs[] = new int[blocksPerChunk * blocksPerChunk];
-						Arrays.fill(blockIDs, 0);
-						c = new Chunk(chunkCoords.x, chunkCoords.y, blockIDs, chunk_id);
-						chunks.add(c);
-						chunkIDs[chunkCoords.x + chunkCoords.y * chunksPerWorld] = chunk_id;
-						updateWorldBuffer = true;
-					} else {
-						c = chunks.get(chunk_id);
+		if (isClicked) {
+			for (int j = -radius; j <= radius; j++) {
+				for (int i = -radius; i <= radius; i++) {
+					if (i * i + j * j > radius * radius) {
+						continue;
 					}
-					chunksToUpdate.add(c);
-					int oldID = c.blocks[blockCoords.x + blockCoords.y * blocksPerChunk];
-					int index = (blockCoords.x + c.x * blocksPerChunk)
-							+ (blockCoords.y + c.y * blocksPerChunk) * blocksPerChunk * chunksPerWorld;
-					if (BlockIDs.isLight(oldID)) {
-						lights.remove(index).delete();
-					}
-					c.blocks[blockCoords.x + blockCoords.y * blocksPerChunk] = blockID.blockID;
-					if (blockID.isLight()) {
-						// this block is a light
-						Vector2f worldPos = new Vector2f(blockCoords).add(c.x * blocksPerChunk, c.y * blocksPerChunk)
-								.add(0.5f, 0.5f);
-						lights.put(index, new Light(worldPos, 15));
-					}
-				}
 
+					Vector2i blockCoords = new Vector2i(mouseBlockCoords).add(i, j);
+					setBlock(blockCoords, blockID);
+
+				}
 			}
 		}
+
+		for (var t : entities) {
+			t.update(this, game, window);
+		}
+
 	}
 
-//	public void visit(Vector2f cameraPos, float zoom, Vector2f screenSize, Vector2f mouseCoords, boolean isClicked) {
-//		value = ((a & 0xFF) << 24) | ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | ((b & 0xFF) << 0);
-//	}
-
-	int startTime(){
+	int startTime() {
 		int queryID = 0;
-		try ( MemoryStack stack = MemoryStack.stackPush() ) {
+		try (MemoryStack stack = MemoryStack.stackPush()) {
 			IntBuffer pID = stack.mallocInt(1);
 			GL46C.glGenQueries(pID);
 			queryID = pID.get(0);
@@ -285,11 +334,11 @@ public class World {
 		return queryID;
 	}
 
-	long stopTime(int queryID){
- 		GL46C.glEndQuery(GL46C.GL_TIME_ELAPSED);
+	long stopTime(int queryID) {
+		GL46C.glEndQuery(GL46C.GL_TIME_ELAPSED);
 
 		long time = 0;
-		try ( MemoryStack stack = MemoryStack.stackPush() ) {
+		try (MemoryStack stack = MemoryStack.stackPush()) {
 			LongBuffer p = stack.mallocLong(1);
 			long pointer = stack.getPointerAddress();
 			GL46C.glGetQueryObjecti64v(queryID, GL46C.GL_QUERY_RESULT, pointer);
@@ -304,37 +353,38 @@ public class World {
 		frames++;
 		totalFrames++;
 
-		if (debug.rebuildBloomCascades || 
-				fbo.width != game.screenSize.x || 
-				fbo.height != game.screenSize.y) {
+		int expectedWidth = (int) game.screenSize.x / debug.scaleFactor;
+		int expectedHeight = (int) game.screenSize.y / debug.scaleFactor;
+
+		if (debug.rebuildBloomCascades || fbo.width != expectedWidth || fbo.height != expectedHeight) {
 			// resize the textures
-			int width = (int) game.screenSize.x;
-			int height = (int) game.screenSize.y;
+			int width = expectedWidth;
+			int height = expectedHeight;
 
 			fbo.resize(width, height);
 			fbo.getAttachment("LIGHT").bindAsTexture(0, GL46C.GL_LINEAR, GL46C.GL_CLAMP_TO_EDGE);
 			fbo.getAttachment("LIGHT").unbindAsTexture(0);
 
-			//colorTexture.delete();
-			//colorTexture = new Texture(width, height, GL46C.GL_RGBA16F, GL46C.GL_NEAREST);
+			// colorTexture.delete();
+			// colorTexture = new Texture(width, height, GL46C.GL_RGBA16F,
+			// GL46C.GL_NEAREST);
 
 			postProcessTex.delete();
-			postProcessTex = new Texture(width, height, GL46C.GL_RGBA8, GL46C.GL_NEAREST);
-
+			postProcessTex = new Texture(width, height, GL46C.GL_RGBA8, GL46C.GL_LINEAR);
 
 			for (var t : bloomCascade) {
-				((Texture)t).delete();
+				((Texture) t).delete();
 			}
 			bloomCascade.clear();
 
 			width /= 2;
 			height /= 2;
-			for(int i=0; i<debug.bloomCascades; i++){
+			for (int i = 0; i < debug.bloomCascades; i++) {
 				bloomCascade.add(new Texture(width, height, GL46C.GL_RGBA16F, GL46C.GL_LINEAR));
 				width /= 2;
 				height /= 2;
 
-				if(width < 8 || height < 8){
+				if (width < 8 || height < 8) {
 					break;
 				}
 			}
@@ -389,6 +439,9 @@ public class World {
 		fbo.clearColorAttachment("COLOR", new Vector4f(0, 0, 0, 0));
 		fbo.clearColorAttachment("LIGHT", new Vector4f(0, 0, 0, 0));
 
+		blockQuad.bind();
+		blockQuad.bindAttribute(0);
+
 		worldShader.start();
 		blockAtlas.bindAsTexture(0);
 		blockGlowAtlas.bindAsTexture(1);
@@ -396,54 +449,75 @@ public class World {
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 0, worldBuffer.getID());
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 1, chunkBuffer.getID());
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 2, Light.BVHBuffer.getID());
-		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 3, BlockIDs.blocksInfo.getID());
+		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 3, Block.blocksInfo.getID());
 
-		//GL46C.glBindImageTexture(0, colorTexture.id, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
-		//GL46C.glBindImageTexture(1, bloomCascade.get(0).id, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
-
-		worldShader.loadFloat("zoom", game.getZoom());
-		worldShader.loadVec2("cameraPos", game.getOrigin());
-		worldShader.loadVec2("screenSize", game.screenSize);
+		worldShader.loadFloat("zoom", game.getZoom() * debug.scaleFactor);
+		worldShader.loadVec2("cameraPos", game.cameraPos());
+		worldShader.loadVec2("screenSize", new Vector2f(expectedWidth, expectedHeight));
 		worldShader.loadInt("time", totalFrames);
 		worldShader.loadFloat("glowPower", debug.glowPower);
-		
 
-		//draw fullscreen quad
-		blockQuad.bind();
-		blockQuad.bindAttribute(0);
-		GL46C.glDrawArrays(GL46C.GL_TRIANGLE_STRIP, 0, 4);
-		blockQuad.unbindAttribute(0);
-		blockQuad.unbind();
-
-		//GL46C.glDispatchCompute((colorTexture.width + 15) / 16, (colorTexture.height + 15) / 16, 1);
-		//GL46C.glMemoryBarrier(GL46C.GL_ALL_BARRIER_BITS);
+		GL46C.glDrawArrays(GL46C.GL_TRIANGLE_STRIP, 0, 4);// draw fullscreen quad
 
 		blockAtlas.unbindAsTexture(0);
 		blockGlowAtlas.unbindAsTexture(1);
-
-		//GL46C.glBindImageTexture(0, 0, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
-		//GL46C.glBindImageTexture(1, 0, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
 
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 0, 0);
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 1, 0);
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 2, 0);
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 3, 0);
 		worldShader.stop();
+
+		entityShader.start();
+		entityShader.loadFloat("zoom", game.getZoom() * debug.scaleFactor);
+		entityShader.loadVec2("cameraPos", game.cameraPos());
+		entityShader.loadVec2("screenSize", new Vector2f(expectedWidth, expectedHeight));
+		entityShader.loadInt("time", totalFrames);
+		entityShader.loadFloat("glowPower", debug.glowPower);
+
+		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 2, Light.BVHBuffer.getID());
+
+		Matrix4f worldToNDC = new Matrix4f();
+		worldToNDC.m00(expectedWidth * game.getZoom() / blockPixelHeight);
+		worldToNDC.m11(expectedHeight * game.getZoom() / blockPixelHeight);
+		worldToNDC.m30(game.cameraPos().x);
+		worldToNDC.m31(game.cameraPos().y);
+		worldToNDC.invertAffine();
+
+		for (Entity entity : entities) {
+
+			Matrix4f T = new Matrix4f(worldToNDC).mul(entity.getTransform());
+			entityShader.loadMat4("transform", T);
+
+			entity.getTexture().bindAsTexture(0);
+			entity.getGlowTexture().bindAsTexture(1);
+			GL46C.glDrawArrays(GL46C.GL_TRIANGLE_STRIP, 0, 4);// draw quad
+			entity.getTexture().unbindAsTexture(0);
+			entity.getGlowTexture().unbindAsTexture(1);
+		}
+
+		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 2, 0);
+		entityShader.stop();
+
+		blockQuad.unbindAttribute(0);
+		blockQuad.unbind();
+
 		fbo.unbind();
 
+		GL46C.glViewport(0, 0, (int) game.screenSize.x, (int) game.screenSize.y);
+
 		// Bloom effect
-		if(debug.isBloomEnabled){
+		if (debug.isBloomEnabled) {
 			bloomCascade.add(0, fbo.getAttachment("LIGHT"));
 
 			downScale.start();
 			for (int i = 0; i < bloomCascade.size() - 1; i++) {
 				bloomCascade.get(i).bindAsTexture(0);
-				GL46C.glBindImageTexture(0, bloomCascade.get(i + 1).getID(), 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
+				GL46C.glBindImageTexture(0, bloomCascade.get(i + 1).getID(), 0, false, 0, GL46C.GL_WRITE_ONLY,
+						GL46C.GL_RGBA16F);
 
-				GL46C.glDispatchCompute(
-						(bloomCascade.get(i + 1).getWidth() + 15) / 16,
-						(bloomCascade.get(i + 1).getHeight() + 15) / 16, 
-						1);
+				GL46C.glDispatchCompute((bloomCascade.get(i + 1).getWidth() + 15) / 16,
+						(bloomCascade.get(i + 1).getHeight() + 15) / 16, 1);
 				GL46C.glMemoryBarrier(GL46C.GL_ALL_BARRIER_BITS);
 			}
 			downScale.stop();
@@ -453,12 +527,11 @@ public class World {
 
 			for (int i = bloomCascade.size() - 2; i >= 0; i--) {
 				bloomCascade.get(i + 1).bindAsTexture(0);
-				GL46C.glBindImageTexture(0, bloomCascade.get(i).getID(), 0, false, 0, GL46C.GL_READ_WRITE, GL46C.GL_RGBA16F);
+				GL46C.glBindImageTexture(0, bloomCascade.get(i).getID(), 0, false, 0, GL46C.GL_READ_WRITE,
+						GL46C.GL_RGBA16F);
 
-				GL46C.glDispatchCompute((
-						bloomCascade.get(i).getWidth() + 15) / 16, 
-						(bloomCascade.get(i).getHeight() + 15) / 16, 
-						1);
+				GL46C.glDispatchCompute((bloomCascade.get(i).getWidth() + 15) / 16,
+						(bloomCascade.get(i).getHeight() + 15) / 16, 1);
 				GL46C.glMemoryBarrier(GL46C.GL_ALL_BARRIER_BITS);
 			}
 			bloomCascade.get(0).unbindAsTexture(0);
@@ -471,10 +544,11 @@ public class World {
 
 //		GL46C.glBindImageTexture(0, fbo.getAttachment("COLOR").getID(), 0, false, 0, GL46C.GL_READ_ONLY, GL46C.GL_RGBA16F);
 //		GL46C.glBindImageTexture(1, fbo.getAttachment("LIGHT").getID(), 0, false, 0, GL46C.GL_READ_ONLY, GL46C.GL_RGBA16F);
-	
-	
-		GL46C.glBindImageTexture(0, fbo.getAttachment("COLOR").getID(), 0, false, 0, GL46C.GL_READ_ONLY, GL46C.GL_RGBA16F);
-		GL46C.glBindImageTexture(1, fbo.getAttachment("LIGHT").getID(), 0, false, 0, GL46C.GL_READ_ONLY, GL46C.GL_RGBA16F);
+
+		GL46C.glBindImageTexture(0, fbo.getAttachment("COLOR").getID(), 0, false, 0, GL46C.GL_READ_ONLY,
+				GL46C.GL_RGBA16F);
+		GL46C.glBindImageTexture(1, fbo.getAttachment("LIGHT").getID(), 0, false, 0, GL46C.GL_READ_ONLY,
+				GL46C.GL_RGBA16F);
 		GL46C.glBindImageTexture(2, postProcessTex.id, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA8);
 
 		postProcessShader.start();
@@ -487,7 +561,7 @@ public class World {
 		GL46C.glBindImageTexture(1, 0, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
 		GL46C.glBindImageTexture(2, 0, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA8);
 
-		//select which texture to display
+		// select which texture to display
 
 		// copy the image to screen
 		quadShader.start();
@@ -503,16 +577,14 @@ public class World {
 		long elapsedTime = stopTime(queryID);
 
 		times.add(elapsedTime);
-		if(times.size() > 120){
+		if (times.size() > 120) {
 			times.remove(0);
 		}
 
-		double averageMS = times.stream().mapToDouble(l -> (double)l * 1.0E-6).average().getAsDouble();
+		double averageMS = times.stream().mapToDouble(l -> (double) l * 1.0E-6).average().getAsDouble();
 
 		DecimalFormat format = new DecimalFormat("#.###");
 		System.out.println(format.format(averageMS) + " ms");
-
-
 
 //		Light.renderDebug(game);
 	}

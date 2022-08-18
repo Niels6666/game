@@ -51,7 +51,7 @@ public class Light {
 			init();
 		debugShader.start();
 		debugShader.loadFloat("zoom", game.getZoom());
-		debugShader.loadVec2("cameraPos", game.getOrigin());
+		debugShader.loadVec2("cameraPos", game.cameraPos());
 		debugShader.loadVec2("screenSize", game.screenSize);
 
 		debugQuad.bind();
