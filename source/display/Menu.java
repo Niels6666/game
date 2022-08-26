@@ -95,9 +95,4 @@ public class Menu implements Component {
 	public String title() {
 		return "Menu";
 	}
-
-	@Override
-	public int flags() {
-		return flags;
-	}
 }

@@ -3,6 +3,7 @@
 const int blockPixelHeight = 20;
 const int blocksPerChunk = 20;
 const int chunksPerWorld = 128;
+const float sunRadius = 15.0f;
 
 const vec2 worldCenter = vec2(chunksPerWorld/2.0f) * blocksPerChunk;
 
@@ -17,13 +18,13 @@ struct World{
 struct BVHNode{
 	vec2 min;
 	vec2 max;
-	int child1;		// -1 if leaf node
-	int child2;		// -1 if leaf node
-	float radius;   // if leaf node, radius of the light
-	uint color;      // rgba
+	int child1;		   // -1 if leaf node
+	int child2;		   // -1 if leaf node
+	float radius;      // if leaf node, radius of the light
+	float innerRadius; // if leaf node, innerRadius of the light
 	vec2 direction;
+	uint color;        // rgba
 	float angle;
-	int padding;
 };
 
 struct BlockInfo{
@@ -38,7 +39,11 @@ layout(binding = 1) uniform sampler2D TextureGlowAtlas;
 
 layout(location = 0) out vec4 colorOutput;
 layout(location = 1) out vec4 lightOutput;
+layout(location = 2) out vec4 glowOutput;
 
+////////////
+//foreground
+////////////
 layout(std430, binding = 0) restrict readonly buffer worldBuffer {
 	World world;
 };
@@ -55,30 +60,43 @@ layout(std430, binding = 3) restrict readonly buffer BlockInfoBuffer {
 	BlockInfo blockInfos[];
 };
 
-uniform float zoom;
+/////////////
+//background
+/////////////
+layout(std430, binding = 4) restrict readonly buffer bgWorldBuffer {
+	World BGworld;
+};
+
+layout(std430, binding = 5) restrict readonly buffer bgChunkBuffer {
+	Chunk BGchunks[];
+};
+
+/////////////
+//altitudes
+/////////////
+layout(std430, binding = 6) restrict readonly buffer altitudesBuffer {
+	int altitudes[];
+};
+
+//////////
+//uniforms
+//////////
 uniform vec2 cameraPos;
 uniform vec2 screenSize;
 uniform int time;
-uniform float glowPower;
+uniform float zoom;
+uniform float ambientLight;
+uniform vec4 skyColor;
+uniform vec4 sunColor;
+uniform vec2 sunPos;
 
 in vec2 texCoords;
-
-float getDynamicRadius(float radius) {
-	//float s = time + cos(time/60.0 * 0.12) + sin(time/60.0 * 4.456);
-	//s = 0.8f + 0.2f * cos(s);
-	return radius;// * s;
-	//Random r = new Random(System.nanoTime() / 50000);
-	//dynamicRadius = radius - r.nextFloat();
-}
-
 
 vec4 illumination(vec2 worldPos){
     if(nodes.length() == 0){
         return vec4(0.0);
     }
     
-    
-
     int stackPtr = 0;
     int stack[32];
     stack[stackPtr] = 0;
@@ -98,16 +116,17 @@ vec4 illumination(vec2 worldPos){
                 vec2 center = (n.min + n.max) * 0.5f;
                 vec2 toPixel = worldPos - center;
                 float d = length(toPixel);
-                float r = getDynamicRadius(n.radius);
+                float r = n.radius;
 				
                 float power = max(1.0f - d / r, 0.0);
+                float innerPower = max(1.0f - d / n.innerRadius, 0.0);
 
 				vec2 dir = n.direction;
 				float cosAngleHalf = n.angle;
 				
-				if(dot(dir, toPixel) < cosAngleHalf*d){
-					power = 0;
-				}
+				power *= smoothstep(cosAngleHalf*d*0.8, cosAngleHalf*d, dot(dir, toPixel));
+				
+				power = max(power, innerPower);
 				
                	lightPower += power * unpackUnorm4x8(n.color);
             }
@@ -123,11 +142,11 @@ void main(){
     vec2 worldCoords = onScreenPixelCoords / blockPixelHeight * zoom 
         + cameraPos;
 
-    ivec2 blockCoords = ivec2(floor(worldCoords));
-    vec2 blockLocalCoords = (worldCoords - blockCoords) * blockPixelHeight;
+    ivec2 blockGlobalCoords = ivec2(floor(worldCoords));
+    vec2 pixelLocalCoords = (worldCoords - blockGlobalCoords) * blockPixelHeight;
     
     ivec2 chunkCoords = ivec2(floor(worldCoords / blocksPerChunk));
-    blockCoords = blockCoords - chunkCoords * blocksPerChunk;
+    ivec2 blockLocalCoords = blockGlobalCoords - chunkCoords * blocksPerChunk;
 
     bool insideWorld = chunkCoords.x >= 0 && chunkCoords.y >= 0 && 
                 chunkCoords.x < chunksPerWorld && chunkCoords.y < chunksPerWorld;
@@ -140,12 +159,10 @@ void main(){
     
     int chunkID = world.chunkIDs[chunkCoords.x + chunkCoords.y * chunksPerWorld];
     if(chunkID != -1){
-    	int blockID = chunks[chunkID].blockIDs[blockCoords.x + blockCoords.y * blocksPerChunk];
+    	int blockID = chunks[chunkID].blockIDs[blockLocalCoords.x + blockLocalCoords.y * blocksPerChunk];
 	    
-        if(blockID < 0){
-            colorOutput = vec4(1.0, 0.0, 1.0, 1); // should not happen
-        }else if(blockID == 0){
-            colorOutput = vec4(0.0, 0.0, 0.0, 1);//AIR
+        if(blockID == 0){
+            colorOutput = vec4(0.0, 0.0, 0.0, 0);//AIR
         }else{
             if(blockInfos[blockID].isAnimated){
             	blockID += (time / blockInfos[blockID].animationSpeed) % blockInfos[blockID].animationLength;
@@ -154,19 +171,61 @@ void main(){
             ivec2 atlasSize = textureSize(TextureAtlas, 0) / blockPixelHeight;
 	        ivec2 atlasCoords = ivec2(blockID % atlasSize.x, blockID / atlasSize.x);
 	
-		    colorOutput = texelFetch(TextureAtlas, ivec2(atlasCoords * blockPixelHeight + blockLocalCoords), 0);
-		    
-		    vec4 glowColor = texelFetch(TextureGlowAtlas, ivec2(atlasCoords * blockPixelHeight + blockLocalCoords), 0);
-            glowColor.grb *= glowColor.a * glowPower;
-
-            vec4 lightPower = illumination(worldCoords) + glowColor;
-
-            colorOutput *= lightPower;
-            lightOutput += glowColor;
+		    colorOutput = texelFetch(TextureAtlas, ivec2(atlasCoords * blockPixelHeight + pixelLocalCoords), 0);
+		    glowOutput = texelFetch(TextureGlowAtlas, ivec2(atlasCoords * blockPixelHeight + pixelLocalCoords), 0);
+            glowOutput.grb *= glowOutput.a;
         }
+        
     }else{
     	colorOutput = vec4(0.0, 0.0, 0.0, 1);
-        lightOutput = vec4(0.0, 0.0, 0.0, 1);
+        glowOutput = vec4(0.0, 0.0, 0.0, 1);
     }
-
+    
+    lightOutput = illumination(worldCoords);
+    
+    if(colorOutput.a < 1){
+		// do almost the same for the background
+		int BGchunkID = BGworld.chunkIDs[chunkCoords.x + chunkCoords.y * chunksPerWorld];
+		if(BGchunkID != -1){
+			int BGblockID = BGchunks[chunkID].blockIDs[blockLocalCoords.x + blockLocalCoords.y * blocksPerChunk];
+		    
+		    if(BGblockID == 0){
+		        colorOutput = vec4(0.0, 0.0, 0.0, 0);//AIR
+		    }else{
+		        if(blockInfos[BGblockID].isAnimated){
+		        	BGblockID += (time / blockInfos[BGblockID].animationSpeed) % blockInfos[BGblockID].animationLength;
+		        }
+		
+		        ivec2 atlasSize = textureSize(TextureAtlas, 0) / blockPixelHeight;
+		        ivec2 atlasCoords = ivec2(BGblockID % atlasSize.x, BGblockID / atlasSize.x);
+		
+			    colorOutput = texelFetch(TextureAtlas, ivec2(atlasCoords * blockPixelHeight + pixelLocalCoords), 0);
+			    //darken it to give the 'background' impression
+			    colorOutput.grb *= 0.4;
+		    }
+		}
+    }
+    
+    //test again for the sky
+    if(colorOutput.a < 1){
+     	//test if it is the sun
+     	vec2 toPixel = worldCoords - sunPos;
+        float d2 = dot(toPixel, toPixel);
+     	if(d2 <= sunRadius*sunRadius){
+     		colorOutput = sunColor;
+     		glowOutput = sunColor;
+     	}else{
+	    	colorOutput = skyColor;
+     	}
+    }
+    
+	lightOutput += max(ambientLight, 0.2f) * skyColor * 
+						max(smoothstep(
+								blockGlobalCoords.y - 20, 
+								blockGlobalCoords.y,
+								altitudes[blockGlobalCoords.x]
+							), 
+							0.2f);
+    
+    
 }

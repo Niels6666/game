@@ -3,6 +3,7 @@ package terrain;
 import static org.lwjgl.opengl.GL15C.GL_STATIC_DRAW;
 
 import java.awt.Color;
+import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Random;
@@ -19,6 +20,7 @@ import opengl.VBO;
 public class Light {
 	public Vector2f pos;
 	public float radius;
+	public float innerRadius;
 	public Vector2f direction;
 	public float angle;
 	public Color color;
@@ -29,8 +31,6 @@ public class Light {
 	public static VBO BVHBuffer;
 	private static VAO debugQuad;
 	private static Shader debugShader;
-
-	private static boolean needsUpdate = true;
 
 	public static void init() {
 		debugQuad = new VAO();
@@ -82,19 +82,21 @@ public class Light {
 	}
 
 	public Light(Vector2f pos, float radius) {
-		this.pos = pos;
+		this.pos = new Vector2f(pos);
 		this.radius = radius;
+		this.innerRadius = radius;
 		this.direction = new Vector2f(1, 0);
-		this.angle = (float) (Math.PI*2);
+		this.angle = (float) (Math.PI * 2);
 		this.color = new Color(255, 255, 125);
 
 		this.node = new BVHNode<Light>(new AABB(pos, radius), this);
 		putInBVH();
 	}
 
-	public Light(Vector2f pos, float radius, float angle, Vector2f direction, Color color) {
+	public Light(Vector2f pos, float radius, float innerRadius, float angle, Vector2f direction, Color color) {
 		this.pos = pos;
 		this.radius = radius;
+		this.innerRadius = innerRadius;
 		this.direction = direction;
 		this.angle = angle;
 		this.color = color;
@@ -104,8 +106,7 @@ public class Light {
 	}
 
 	public void putInBVH() {
-		bvh.add(node);
-		needsUpdate = true;
+		bvh.addPublic(node);
 	}
 
 	/**
@@ -115,19 +116,13 @@ public class Light {
 	public void update() {
 		node.box.set(pos, radius);
 		bvh.update(node);
-		needsUpdate = true;
 	}
 
 	public void delete() {
-		bvh.remove(node);
-		needsUpdate = true;
+		bvh.removePublic(node);
 	}
 
 	public static void createBVHBuffer() {
-		if (!needsUpdate)
-			return;
-
-		needsUpdate = false;
 		int structSize = 48;
 		int nodeCount = bvh.leavesCount * 2 - 1;
 
@@ -137,17 +132,16 @@ public class Light {
 			buff.putFloat(0);
 			buff.putFloat(0);
 			buff.putFloat(0);
-			
+
 			buff.putInt(-1); // child1
 			buff.putInt(-1); // child2
 			buff.putFloat(0); // radius
+			buff.putFloat(0); // innerRadius
+
 			buff.putInt(0); // color
-			
 			buff.putFloat(0); // direction.x
 			buff.putFloat(0); // direction.y
 			buff.putFloat(0); // angle
-			buff.putInt(0); // padding
-			
 
 			BVHBuffer = new VBO(GL46C.GL_SHADER_STORAGE_BUFFER);
 			BVHBuffer.bind();
@@ -176,31 +170,35 @@ public class Light {
 
 			buff.putFloat(n.box.maxX);
 			buff.putFloat(n.box.maxY);
+
 			if (n.isLeaf) {
 				buff.putInt(-1); // child1
 				buff.putInt(-1); // child2
 				buff.putFloat(n.getHandle().radius); // radius
+				buff.putFloat(n.getHandle().innerRadius); // innerRadius
 
+				buff.putFloat(n.getHandle().direction.x); // direction.x
+				buff.putFloat(n.getHandle().direction.y); // direction.y
+				
 				int u = 0;
 				u |= n.getHandle().color.getRed() << 0;
 				u |= n.getHandle().color.getGreen() << 8;
 				u |= n.getHandle().color.getBlue() << 16;
 
 				buff.putInt(u); // color
-				
-				buff.putFloat(n.getHandle().direction.x); // direction.x
-				buff.putFloat(n.getHandle().direction.y); // direction.y
-				buff.putFloat((float) Math.cos(n.getHandle().angle*0.5)); // angle
-				buff.putInt(0); // padding
+
+				buff.putFloat((float) Math.cos(n.getHandle().angle * 0.5)); // angle
 			} else {
 				buff.putInt(-1); // child1
 				buff.putInt(-1); // child2
 				buff.putFloat(0); // radius
-				buff.putInt(0); // color
+				buff.putFloat(0); // innerRadius
+				
 				buff.putFloat(0); // direction.x
 				buff.putFloat(0); // direction.y
+
+				buff.putInt(0); // color
 				buff.putFloat(0); // angle
-				buff.putInt(0); // padding
 			}
 		}, false);
 

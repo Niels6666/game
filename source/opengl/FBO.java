@@ -303,7 +303,9 @@ public class FBO {
 		RGB16F(GL46C.GL_RGB16F, GL46C.GL_RGB, GL46C.GL_COLOR_ATTACHMENT0, true, GL46C.GL_FLOAT),
 		RGB32F(GL46C.GL_RGB32F, GL46C.GL_RGB, GL46C.GL_COLOR_ATTACHMENT0, true, GL46C.GL_FLOAT),
 
-		RGBA(GL46C.GL_RGBA, GL46C.GL_RGBA, GL46C.GL_COLOR_ATTACHMENT0, true, GL46C.GL_FLOAT),
+		R11F_G11F_B10F(GL46C.GL_R11F_G11F_B10F, GL46C.GL_RGB, GL46C.GL_COLOR_ATTACHMENT0, true, GL46C.GL_FLOAT),
+
+		RGBA(GL46C.GL_RGBA8, GL46C.GL_RGBA, GL46C.GL_COLOR_ATTACHMENT0, true, GL46C.GL_FLOAT),
 		RGBA16F(GL46C.GL_RGBA16F, GL46C.GL_RGBA, GL46C.GL_COLOR_ATTACHMENT0, true, GL46C.GL_FLOAT),
 		RGBA32F(GL46C.GL_RGBA32F, GL46C.GL_RGBA, GL46C.GL_COLOR_ATTACHMENT0, true, GL46C.GL_FLOAT),
 
@@ -315,11 +317,11 @@ public class FBO {
 		DEPTH32_STENCIL8(GL46C.GL_DEPTH32F_STENCIL8, GL46C.GL_DEPTH_STENCIL, GL46C.GL_DEPTH_STENCIL_ATTACHMENT, false,
 				GL46C.GL_FLOAT_32_UNSIGNED_INT_24_8_REV);
 
-		int internalFormat;
-		int format;
-		int attachment;
-		boolean isColorAttachment;
-		int dataType;
+		public final int internalFormat;
+		public final int format;
+		public final int attachment;
+		public final boolean isColorAttachment;
+		public final int dataType;
 
 		private AttachmentFormat(int internalFormat, int format, int attachment, boolean isColorAttachment,
 				int dataType) {

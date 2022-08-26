@@ -3,7 +3,7 @@
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(binding = 0) uniform sampler2D inputImg;
-layout(binding = 0, rgba16f) uniform restrict image2D outputImg;
+layout(binding = 0, rgba8) uniform restrict image2D outputImg;
 
 uniform float weight;
 

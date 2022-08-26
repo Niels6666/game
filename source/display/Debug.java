@@ -4,12 +4,14 @@ import static org.lwjgl.nuklear.Nuklear.*;
 import static org.lwjgl.system.MemoryStack.stackPush;
 
 import java.awt.geom.Rectangle2D;
+import java.text.DecimalFormat;
 
 import org.lwjgl.nuklear.NkColor;
 import org.lwjgl.nuklear.NkContext;
 import org.lwjgl.nuklear.NkImage;
 import org.lwjgl.nuklear.NkRect;
 import org.lwjgl.nuklear.NkStyleButton;
+import org.lwjgl.nuklear.NkStyleWindow;
 import org.lwjgl.nuklear.NkVec2;
 import org.lwjgl.system.MemoryStack;
 
@@ -26,6 +28,7 @@ public class Debug implements Component {
 	int flags = NK_WINDOW_TITLE | NK_WINDOW_DYNAMIC;
 	boolean visible = true;
 	public int fps = 0;
+	public double gpuTime;
 	public long lastCall = System.currentTimeMillis();
 
 	private Game game;
@@ -36,12 +39,13 @@ public class Debug implements Component {
 	public float bloomWeight = 1.0f;
 	public float toneMappingExposure = 0.25f;
 	public float glowPower = 1.0f;
+	public float ambientLight = 0.0f;
 	public boolean rebuildBloomCascades = false;
 	public int scaleFactor = 2;
-	
+
 	public boolean freeCamera = true;
 
-	public Debug(NkContext ctx, Game game) {
+	public Debug(Game game) {
 		this.game = game;
 	}
 
@@ -51,36 +55,53 @@ public class Debug implements Component {
 		}
 		try (MemoryStack stack = stackPush()) {
 			NkRect rect = NkRect.malloc(stack);
-			nk_rect(x, y, 500, window.getWidth(), rect);
+			nk_rect(window.getWidth() - 500, y, 500, window.getHeight(), rect);
 
-			NkStyleButton close = ctx.style().window().header().close_button();
-			close.normal().data().color().set(Color.transparent);
-			close.text_normal().set(Color.white);
-			close.hover().data().color().set(Color.red);
-			close.text_hover().set(Color.black);
+//			NkStyleButton close = ctx.style().window().header().close_button();
+//			close.normal().data().color().set(Color.transparent);
+//			close.text_normal().set(Color.white);
+//			close.hover().data().color().set(Color.red);
+//			close.text_hover().set(Color.black);
+//
+//			NkStyleButton minim = ctx.style().window().header().minimize_button();
+//			minim.normal().data().color().set(Color.transparent);
+//			minim.text_normal().set(Color.white);
+//			minim.hover().data().color().set(Color.lightGray);
+//			minim.text_hover().set(Color.black);
 
-			NkStyleButton minim = ctx.style().window().header().minimize_button();
-			minim.normal().data().color().set(Color.transparent);
-			minim.text_normal().set(Color.white);
-			minim.hover().data().color().set(Color.lightGray);
-			minim.text_hover().set(Color.black);
-
-			ctx.style().window().header().active().data().color().set(Color.create(20, 20, 20, 100));
-			ctx.style().window().background().set(Color.create(20, 20, 20, 100));
-
+			NkColor c = Color.create(20, 20, 20, 255);
+			NkStyleWindow w = ctx.style().window();
+			w.header().active().data().color().set(c);
+			w.background().set(c);
+			w.fixed_background().data().color().set(c);
+//			w.combo_border(0);
+//			w.combo_border_color().set(c);
+//			w.contextual_border(0);
+//			w.contextual_border_color().set(c);
+//			w.group_border(0);
+//			w.group_border_color().set(c);
+//			w.menu_border(0);
+//			w.menu_border_color().set(c);
+//			w.min_row_height_padding(0);
+			
 			if (nk_begin(ctx, title(), rect, flags)) {
-				float height = 25;
+//				float height = 25;
+				float height = 0;
 				NkColor info = Color.create(100, 255, 100);
 
 				nk_layout_row_dynamic(ctx, height, 1);
 				nk_label_colored(ctx, "fps:" + fps, NK_TEXT_LEFT, info);
 
 				nk_layout_row_dynamic(ctx, height, 1);
+				DecimalFormat format = new DecimalFormat("#.###");
+				nk_label_colored(ctx, "gpu time:" + format.format(gpuTime), NK_TEXT_LEFT, info);
+
+				nk_layout_row_dynamic(ctx, height, 1);
 				nk_label_colored(ctx, "mouse:" + window.cursorPos(), NK_TEXT_LEFT, info);
 
 				nk_layout_row_dynamic(ctx, height, 1);
 				nk_label_colored(ctx, "camera:" + game.cameraPos(), NK_TEXT_LEFT, info);
-				
+
 				nk_layout_row_dynamic(ctx, height, 1);
 				nk_label_colored(ctx, "player:" + game.w.entities.get(0).getPosition(), NK_TEXT_LEFT, info);
 
@@ -88,26 +109,33 @@ public class Debug implements Component {
 				nk_label_colored(ctx, "number of lights:" + game.w.lights.size(), NK_TEXT_LEFT, info);
 
 				nk_layout_row_dynamic(ctx, height, 1);
-				
+
 				rebuildBloomCascades = false;
 				int res = nk_propertyi(ctx, "Bloom cascades", 1, bloomCascades, 16, 1, 0.005f);
-				if(res != bloomCascades){
+				if (res != bloomCascades) {
 					bloomCascades = res;
 					rebuildBloomCascades = true;
 				}
-				
+
 				bloomWeight = nk_propertyf(ctx, "Bloom weight", 0, bloomWeight, 2, 0.01f, 0.005f);
 				toneMappingExposure = nk_propertyf(ctx, "Exposure", 0, toneMappingExposure, 100, 0.01f, 0.005f);
 				glowPower = nk_propertyf(ctx, "Glow power", 0, glowPower, 100, 0.01f, 0.005f);
+				ambientLight = nk_propertyf(ctx, "Ambient light", 0, ambientLight, 1, 0.01f, 0.005f);
+
 				scaleFactor = nk_propertyi(ctx, "scale factor", 1, scaleFactor, 5, 1, 0.005f);
-				//public float bloomWeight = 1.0f;
-				//public float toneMappingExposure = 1.0f;
-				//public int bloomCascades = 4;
+				// public float bloomWeight = 1.0f;
+				// public float toneMappingExposure = 1.0f;
+				// public int bloomCascades = 4;
 				nk_layout_row_dynamic(ctx, height, 1);
 				isBloomEnabled = nk_check_text(ctx, "enable bloom", isBloomEnabled);
-				
+
 				nk_layout_row_dynamic(ctx, height, 1);
 				freeCamera = nk_check_text(ctx, "free camera", freeCamera);
+
+				nk_layout_row_dynamic(ctx, height, 1);
+				if (nk_button_label(ctx, "generate terrain")) {
+					game.w.generate();
+				}
 
 //				nk_layout_row_dynamic(ctx, height, 1);
 //
@@ -161,11 +189,6 @@ public class Debug implements Component {
 	@Override
 	public String title() {
 		return "Debug";
-	}
-
-	@Override
-	public int flags() {
-		return flags;
 	}
 
 	public void show() {

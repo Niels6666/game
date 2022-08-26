@@ -12,7 +12,14 @@ import opengl.VAO;
 import opengl.VBO;
 
 public enum Block {
-	AIR(false, false, 0, 0, false), STONE(), DIRT(), CANDLE(false, true, 4, 15, false), URANIUM(true, false, 0, 0, true);
+	AIR(false, false, 0, 0, false), 
+	STONE(), 
+	DIRT(), 
+	GRASS(), 
+	CANDLE(false, true, 4, 15, false), 
+	COAL(),
+	URANIUM(true, false, 0, 0, true),
+	LAVA(false, true, 3, 15, true);
 
 	public final boolean isAnimated;
 	public final boolean isGlowing;

@@ -19,6 +19,7 @@ import java.nio.IntBuffer;
 import java.util.Objects;
 
 import org.joml.Vector2f;
+import org.joml.Vector2i;
 import org.lwjgl.glfw.Callbacks;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.glfw.GLFWCursorPosCallbackI;
@@ -32,25 +33,26 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 
-import display.GUI;
+import display.Manager;
 
 public class Window {
 	private long window;
+	
 	private int width;
 	private int height;
-	public String title;
+	
+	private String title;
 	private double scroll = 0;
 	private Vector2f mousePos = new Vector2f();
 
-	public GUI gui;
-
+	public Manager gui;
 	public boolean events = true;
 
 	public Window(int width, int height, String title) {
 		this.width = width;
 		this.height = height;
 		this.title = title;
-		gui = new GUI();
+		gui = new Manager();
 	}
 
 	public void init(Game game) {
@@ -77,8 +79,8 @@ public class Window {
 			if (key == GLFW.GLFW_KEY_ESCAPE && action == GLFW.GLFW_RELEASE)
 				GLFW.glfwSetWindowShouldClose(window, true);
 		});
-
-		GLFW.glfwSetFramebufferSizeCallback(window, (window, w, h) -> {
+		
+		GLFW.glfwSetWindowSizeCallback(window, (window, w, h) -> {
 			width = w;
 			height = h;
 		});
@@ -109,7 +111,7 @@ public class Window {
 
 			// Get the resolution of the primary monitor
 			GLFWVidMode vidmode = GLFW.glfwGetVideoMode(GLFW.glfwGetPrimaryMonitor());
-			
+
 			// Center the window
 			GLFW.glfwSetWindowPos(window, (vidmode.width() - pWidth.get(0)) / 2,
 					(vidmode.height() - pHeight.get(0)) / 2);
@@ -138,7 +140,7 @@ public class Window {
 	public boolean keyPressed(int keyCode) {
 		return GLFW.glfwGetKey(window, keyCode) == GLFW.GLFW_PRESS;
 	}
-
+	
 	public Vector2f cursorPos() {
 		return mousePos;
 	}
@@ -159,12 +161,11 @@ public class Window {
 		scroll = 0;
 	}
 
-	public int getWidth() {
-		return width;
-	}
-
-	public int getHeight() {
-		return height;
+	/**
+	 * @return the window size
+	 */
+	public Vector2i getSize() {
+		return new Vector2i(width, height);
 	}
 
 	public long getID() {
@@ -183,6 +184,14 @@ public class Window {
 	public void beforeRender() {
 		GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
 		GL11.glViewport(0, 0, getWidth(), getHeight());
+	}
+
+	public int getHeight() {
+		return height;
+	}
+
+	public int getWidth() {
+		return width;
 	}
 
 	/**

@@ -9,13 +9,13 @@ const vec2 worldCenter = vec2(chunksPerWorld/2.0f) * blocksPerChunk;
 struct BVHNode{
 	vec2 min;
 	vec2 max;
-	int child1;		// -1 if leaf node
-	int child2;		// -1 if leaf node
-	float radius;   // if leaf node, radius of the light
-	uint color;      // rgba
+	int child1;		   // -1 if leaf node
+	int child2;		   // -1 if leaf node
+	float radius;      // if leaf node, radius of the light
+	float innerRadius; // if leaf node, innerRadius of the light
 	vec2 direction;
+	uint color;        // rgba
 	float angle;
-	int padding;
 };
 
 layout(binding = 0) uniform sampler2D TextureAtlas;
@@ -23,6 +23,7 @@ layout(binding = 1) uniform sampler2D TextureGlowAtlas;
 
 layout(location = 0) out vec4 colorOutput;
 layout(location = 1) out vec4 lightOutput;
+layout(location = 2) out vec4 glowOutput;
 
 layout(std430, binding = 2) restrict readonly buffer LightBuffer {
 	BVHNode nodes[];
@@ -32,7 +33,7 @@ uniform float zoom;
 uniform vec2 cameraPos;
 uniform vec2 screenSize;
 uniform int time;
-uniform float glowPower;
+uniform float ambientLight;
 
 in vec2 texCoords;
 
@@ -75,8 +76,10 @@ vec4 illumination(vec2 worldPos){
 				vec2 dir = n.direction;
 				float cosAngleHalf = n.angle;
 				
-				if(dot(dir, toPixel) < cosAngleHalf*d){
-					power = 0;
+				if(d > n.innerRadius){
+					if(dot(dir, toPixel) < cosAngleHalf*d){
+						power = 0;
+					}
 				}
 				
                	lightPower += power * unpackUnorm4x8(n.color);
@@ -99,10 +102,8 @@ void main(){
     }
     
     vec4 glowColor = texelFetch(TextureGlowAtlas, ivec2(texCoords * textureSize(TextureGlowAtlas, 0)), 0);
-    glowColor *= glowColor.a * glowPower;
+    glowColor *= glowColor.a;
 
-    vec4 lightPower = illumination(worldCoords) + glowColor;
-
-    colorOutput *= lightPower;
-    lightOutput = glowColor;
+    lightOutput = illumination(worldCoords) + ambientLight;
+    glowOutput = glowColor;
 }

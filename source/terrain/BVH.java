@@ -24,14 +24,19 @@ public class BVH<T> {
 	private final PriorityQueue<BVHNode<T>> queue = new PriorityQueue<BVHNode<T>>(
 			(left, right) -> Float.compare(left.cost, right.cost));
 
+	
+	
 	/**
 	 * Adds a node in the tree
 	 * 
 	 * @param node The node to be inserted
 	 */
-	public void add(BVHNode<T> node) {
+	public void addPublic(BVHNode<T> node) {
 		leavesCount++;
-
+		add(node);
+	}
+	
+	private void add(BVHNode<T> node) {
 		if (root == null) {
 			root = node;
 			return;
@@ -87,14 +92,20 @@ public class BVH<T> {
 			}
 
 	}
+	
+	
 
 	/**
 	 * Removes a leaf of the tree
 	 * 
 	 * @param node The node to be removed
 	 */
-	public void remove(BVHNode<T> node) {
+	public void removePublic(BVHNode<T> node) {
 		leavesCount--;
+		remove(node);
+	}
+	
+	private void remove(BVHNode<T> node) {
 		if (node.parent == null) {
 			if (node == root) {
 				root = null;

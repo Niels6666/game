@@ -26,12 +26,14 @@ import terrain.World;
 public class Game {
 	public World w;
 	public Camera cam;
-	public MouseInfo mouse;
 	public Vector2f screenSize;
 
 	public Game() {
 	}
 
+	/**
+	 * @return a copy of game.cam.pos
+	 */
 	public Vector2f cameraPos() {
 		return new Vector2f(cam.pos);
 	}
@@ -75,37 +77,37 @@ public class Game {
 			if (window.keyPressed(GLFW.GLFW_KEY_ENTER)) {
 				cam.reset();
 			}
-		} else {
 			
+			if(window.keyPressed(GLFW.GLFW_KEY_KP_ENTER)) {
+				w.generate();
+			}
+		} else {
+
 			Vector2f target = w.entities.get(0).getPosition();
 			cam.pos.lerp(target, 0.1f);
 
-			cam.pos.mul(20).round().div(20);
+//			cam.pos.mul(20).round().div(20);
 
 		}
-		
+
 		screenSize = new Vector2f(window.getWidth(), window.getHeight());
 		if (!window.events) {
-			mouse = null;
 			return;
 		}
 
-		mouse = new MouseInfo(window);
-		if (mouse.scroll() != 0) {
-			cam.zoom(mouse.scroll() < 0 ? 1.1f : 0.95f);
+		double scroll = window.scroll();
+		if (scroll != 0) {
+			if(window.keyPressed(GLFW.GLFW_KEY_LEFT_CONTROL)) {
+				cam.zoom(scroll < 0 ? 1.1f : 0.95f);
+			}else {
+				window.gui.playerGUI.select(scroll);
+			}
 		}
 		window.resetScroll();
 	}
 
 	public void update(Window window) {
-		if (mouse != null) {
-			Block dig = Block.CANDLE;
-			if (mouse.rmb()) {
-				dig = Block.AIR;
-			}
-			w.update(this, window, cameraPos(), getZoom(), new Vector2f(screenSize), new Vector2f(mouse.pos()),
-					mouse.lmb() || mouse.rmb(), dig);
-		}
+		w.update(this, window);
 	}
 
 	public void render(Window window) {
@@ -114,12 +116,5 @@ public class Game {
 
 	public void save() {
 		w.save();
-	}
-
-	public void setWindowTitle(Window window) {
-		if (window.gui.debug != null) {
-			window.gui.debug.fps = w.frames;
-			w.frames = 0;
-		}
 	}
 }

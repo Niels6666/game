@@ -14,34 +14,27 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.nio.LongBuffer;
-import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 
+import org.joml.Matrix4f;
 import org.joml.RoundingMode;
 import org.joml.Vector2f;
 import org.joml.Vector2i;
 import org.joml.Vector4f;
-import org.lwjgl.opengl.GL;
-import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL46C;
 import org.lwjgl.system.MemoryStack;
-import org.joml.Matrix4f;
 
+import display.Color;
 import display.Debug;
 import engine.Game;
 import engine.Window;
-import opengl.Camera;
 import opengl.FBO;
-import opengl.FBO.FBOAttachment;
 import opengl.OpenGLSurface;
-import opengl.Query;
 import opengl.QueryBuffer;
 import opengl.Shader;
 import opengl.Texture;
@@ -53,22 +46,26 @@ public class World {
 	public static final int blockPixelHeight = 20;
 	public static final int blocksPerChunk = 20;
 	public static final int chunksPerWorld = 128;
-	public static final Vector2f center = new Vector2f(chunksPerWorld / 2.0f * blocksPerChunk);
-
-	int chunkIDs[] = new int[chunksPerWorld * chunksPerWorld];
-
-	List<Chunk> chunks = new ArrayList<>();
+	public static final Vector2f WorldOrigin = new Vector2f(chunksPerWorld / 2.0f * blocksPerChunk);
 	public HashMap<Integer, Light> lights = new HashMap<>();
 	public List<Entity> entities = new ArrayList<>();
 
+	int chunkIDs[] = new int[chunksPerWorld * chunksPerWorld];
+	List<Chunk> chunks = new ArrayList<>();
 	VBO chunkBuffer;
 	VBO worldBuffer;
-
 	boolean updateWorldBuffer = false;
 	Set<Chunk> chunksToUpdate = new HashSet<>();
 
-	VAO blockQuad;
+	int bgChunkIDs[] = new int[chunksPerWorld * chunksPerWorld];
+	List<Chunk> bgChunks = new ArrayList<>();
+	VBO bgChunkBuffer;
+	VBO bgWorldBuffer;
 
+	int[] altitudes = new int[chunksPerWorld * blocksPerChunk];
+	VBO altitudesBuffer;
+
+	VAO blockQuad;
 	Shader worldShader;
 	Shader entityShader;
 	Shader postProcessShader;
@@ -79,22 +76,46 @@ public class World {
 	TextureAtlas blockGlowAtlas;
 
 	FBO fbo;
-
 	public List<OpenGLSurface> bloomCascade;
 	// public Texture colorTexture;
-
 	public Texture postProcessTex;
-
 	QueryBuffer queries;
 
 	String savePath;
 
 	public int frames = 0;
 	public int totalFrames = 0;
-
-	private long startTime = System.currentTimeMillis();
-
+	double averageMS = 0;
 	List<Long> times = new ArrayList<>();
+
+	// day-night cycle
+	final Vector4f day = new Vector4f(0.5f, 0.8f, 1f, 1f);
+	final Vector4f dusk = new Vector4f(0.8f, 0.3f, 0.1f, 1f);
+	final Vector4f night = new Vector4f(0.005f, 0.005f, 0.01f, 1f);
+	final Vector4f dawn = new Vector4f(1f, 0.6f, 0.6f, 1f);
+	final Vector4f daySun = new Vector4f(1f, 0.9f, 0.9f, 1f);
+	final Vector4f dawnSun = new Vector4f(1f, 1f, 0.7f, 1f);
+
+	final float[] states = new float[] { // from -1.0f to 1.0f
+			-1.0f, -0.1f, // night
+			-0.1f, 0.0f, // dawn
+			0.0f, 0.9f, // day
+			0.9f, 1.0f // dusk
+	};
+
+	final Vector4f[] changes = new Vector4f[] { //
+			night, dawn, // -1.0f, -0.2f
+			dawn, day, // -0.2f, 0.0f
+			day, dusk, // 0.0f, 0.8f
+			dusk, night // 0.8f, 1.0f
+	};
+
+	float state = -1.0f;
+	Vector4f sky = new Vector4f(night);
+	Vector4f sun = new Vector4f(daySun);
+	Vector2f sunPos = new Vector2f(1280, 0);
+
+	Player player;
 
 	public World(String savePath) throws Exception {
 		this.savePath = savePath;
@@ -105,18 +126,14 @@ public class World {
 		Arrays.fill(chunkIDs, -1);
 
 		try {
-			DataInputStream dis2 = new DataInputStream(
-					new BufferedInputStream(new FileInputStream(new File(savePath + "/blocks.save"))));
-			IntBuffer blocks = ByteBuffer.wrap(dis2.readAllBytes()).asIntBuffer();
-
-			DataInputStream dis = new DataInputStream(
-					new BufferedInputStream(new FileInputStream(new File(savePath + "/chunks.save"))));
-			IntBuffer positions = ByteBuffer.wrap(dis.readAllBytes()).asIntBuffer();
+			IntBuffer blocks = loadBuffer(savePath + "/blocks.save");
+			IntBuffer positions = loadBuffer(savePath + "/chunks.save");
+			int bpc2 = blocksPerChunk * blocksPerChunk;
 			for (int i = 0; i < positions.limit() / 2; i++) {
-				int[] data = new int[blocksPerChunk * blocksPerChunk];
+				int[] data = new int[bpc2];
 				Chunk c = new Chunk(positions.get(2 * i), positions.get(2 * i + 1), data, i);
-				for (int k = 0; k < blocksPerChunk * blocksPerChunk; k++) {
-					int ID = blocks.get(k + i * blocksPerChunk * blocksPerChunk);
+				for (int k = 0; k < bpc2; k++) {
+					int ID = blocks.get(k + i * bpc2);
 					data[k] = ID;
 
 					if (Block.isLight(ID)) {
@@ -130,8 +147,6 @@ public class World {
 				}
 				chunks.add(c);
 			}
-			dis.close();
-			dis2.close();
 
 		} catch (FileNotFoundException e3) {
 
@@ -166,18 +181,94 @@ public class World {
 		worldBuffer.storeData(chunkIDs, GL46C.GL_STATIC_DRAW);
 		worldBuffer.unbind();
 
+		////////////////
+		// background //
+		////////////////
+
+		Arrays.fill(bgChunkIDs, -1);
+
+		try {
+			IntBuffer blocks = loadBuffer(savePath + "/BGblocks.save");
+			IntBuffer positions = loadBuffer(savePath + "/BGchunks.save");
+			int bpc2 = blocksPerChunk * blocksPerChunk;
+			for (int i = 0; i < positions.limit() / 2; i++) {
+				int[] data = new int[bpc2];
+				Chunk c = new Chunk(positions.get(2 * i), positions.get(2 * i + 1), data, i);
+				for (int k = 0; k < bpc2; k++) {
+					int ID = blocks.get(k + i * bpc2);
+					data[k] = ID;
+				}
+				bgChunks.add(c);
+			}
+
+		} catch (FileNotFoundException e3) {
+			for (int j = 0; j < chunksPerWorld; j++) {
+				for (int i = 0; i < chunksPerWorld; i++) {
+					int[] data = new int[blocksPerChunk * blocksPerChunk];
+					Arrays.fill(data, 1);
+					Chunk c = new Chunk(i, j, data, bgChunks.size());
+					bgChunks.add(c);
+				}
+			}
+
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
+		int[] BGallBlocks = new int[bgChunks.size() * blocksPerChunk * blocksPerChunk];
+
+		for (Chunk c : bgChunks) {
+			bgChunkIDs[c.x + c.y * chunksPerWorld] = c.ID;
+			System.arraycopy(c.blocks, 0, BGallBlocks, c.ID * blocksPerChunk * blocksPerChunk,
+					blocksPerChunk * blocksPerChunk);
+		}
+		bgChunkBuffer = new VBO(GL46C.GL_SHADER_STORAGE_BUFFER);
+		bgChunkBuffer.bind();
+		bgChunkBuffer.storeData(BGallBlocks, GL46C.GL_STATIC_DRAW);
+		bgChunkBuffer.unbind();
+
+		bgWorldBuffer = new VBO(GL46C.GL_SHADER_STORAGE_BUFFER);
+		bgWorldBuffer.bind();
+		bgWorldBuffer.storeData(bgChunkIDs, GL46C.GL_STATIC_DRAW);
+		bgWorldBuffer.unbind();
+
+		///////////
+		// altitudes
+		///////////
+		try {
+			IntBuffer coords = loadBuffer(savePath + "/altitudes.save");
+			for (int x = 0; x < coords.limit(); x++) {
+				int y = coords.get(x);
+				altitudes[x] = y;
+			}
+		} catch (FileNotFoundException e3) {
+			Arrays.fill(altitudes, 0);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
+		altitudesBuffer = new VBO(GL46C.GL_SHADER_STORAGE_BUFFER);
+		altitudesBuffer.bind();
+		altitudesBuffer.storeData(altitudes, GL46C.GL_STATIC_DRAW);
+		altitudesBuffer.unbind();
+
+		/////////////
+		// shaders //
+		/////////////
+
 		// worldShader = new Shader("shaders/blockrenderer.cs");
 		worldShader = new Shader("shaders/blockrenderer.vs", "shaders/blockrenderer.fs");
 		worldShader.finishInit();
-		worldShader.init_uniforms(List.of("zoom", "cameraPos", "screenSize", "time", "glowPower"));
+		worldShader.init_uniforms(
+				List.of("cameraPos", "screenSize", "zoom", "time", "ambientLight", "skyColor", "sunColor", "sunPos"));
 
 		entityShader = new Shader("shaders/entityRenderer.vs", "shaders/entityRenderer.fs");
 		entityShader.finishInit();
-		entityShader.init_uniforms(List.of("transform", "zoom", "cameraPos", "screenSize", "time", "glowPower"));
+		entityShader.init_uniforms(List.of("transform", "zoom", "cameraPos", "screenSize", "time", "ambientLight"));
 
 		postProcessShader = new Shader("shaders/postpross.cs");
 		postProcessShader.finishInit();
-		postProcessShader.init_uniforms(List.of("exposure"));
+		postProcessShader.init_uniforms(List.of("exposure", "glowPower"));
 
 		downScale = new Shader("shaders/downScale.cs");
 		downScale.finishInit();
@@ -193,8 +284,9 @@ public class World {
 
 		fbo = new FBO("WorldFBO", 0);
 		fbo.bind();
-		fbo.addTextureAttachment("COLOR", FBO.AttachmentFormat.RGBA16F);
-		fbo.addTextureAttachment("LIGHT", FBO.AttachmentFormat.RGBA16F);
+		fbo.addTextureAttachment("COLOR", FBO.AttachmentFormat.RGBA);
+		fbo.addTextureAttachment("LIGHT", FBO.AttachmentFormat.R11F_G11F_B10F);
+		fbo.addTextureAttachment("GLOW", FBO.AttachmentFormat.RGBA);
 		fbo.unbind();
 
 		if (!fbo.finish()) {
@@ -202,7 +294,6 @@ public class World {
 		}
 
 		bloomCascade = new ArrayList<>();
-		// colorTexture = new Texture(1, 1, GL46C.GL_RGBA16F, GL46C.GL_NEAREST);
 
 		blockQuad = new VAO();
 		blockQuad.bind();
@@ -212,7 +303,15 @@ public class World {
 
 		queries = new QueryBuffer(GL46C.GL_TIME_ELAPSED);
 
-		entities.add(new Player(center));
+		entities.add(player = new Player(new Vector2f(WorldOrigin.x, 0)));
+	}
+
+	private IntBuffer loadBuffer(String path) throws IOException {
+		BufferedInputStream bis = new BufferedInputStream(new FileInputStream(new File(path)));
+		DataInputStream dis = new DataInputStream(bis);
+		IntBuffer ret = ByteBuffer.wrap(dis.readAllBytes()).asIntBuffer();
+		dis.close();
+		return ret;
 	}
 
 	public Chunk getChunk(Vector2i blockCoords, Vector2i localBlockCoords) {
@@ -256,7 +355,7 @@ public class World {
 		}
 
 		int id = c.blocks[localBlockCoords.x + localBlockCoords.y * blocksPerChunk];
-		
+
 		return Block.blockFromID(id);
 	}
 
@@ -285,8 +384,81 @@ public class World {
 		}
 	}
 
-	public void update(Game game, Window window, Vector2f cameraPos, float zoom, Vector2f screenSize,
-			Vector2f mouseCoords, boolean isClicked, Block blockID) {
+	public void generate() {
+		player.position.set(WorldOrigin.x, 100);
+		WorldGen gen = new WorldGen();
+
+		for (int j = 0; j < chunksPerWorld; j++) {
+			for (int i = 0; i < chunksPerWorld; i++) {
+
+				for (int y = 0; y < blocksPerChunk; y++) {
+					for (int x = 0; x < blocksPerChunk; x++) {
+						Vector2i coords = new Vector2i(i * blocksPerChunk + x, j * blocksPerChunk + y);
+						Block block = gen.genBlock(coords.x, coords.y);
+						setBlock(coords, block);
+						// should be the top of the world
+						if (block == Block.GRASS) {
+							altitudes[coords.x] = coords.y;
+						}
+					}
+				}
+
+			}
+		}
+		
+		altitudesBuffer = new VBO(GL46C.GL_SHADER_STORAGE_BUFFER);
+		altitudesBuffer.bind();
+		altitudesBuffer.storeData(altitudes, GL46C.GL_STATIC_DRAW);
+		altitudesBuffer.unbind();
+
+		// background
+		// need a new seed
+		gen = new WorldGen(gen.worldSeed - 1723654);
+		List<Chunk> bgChunks = new ArrayList<>();
+		int bgChunkIDs[] = new int[chunksPerWorld * chunksPerWorld];
+
+		for (int j = 0; j < chunksPerWorld; j++) {
+			for (int i = 0; i < chunksPerWorld; i++) {
+				int[] data = new int[blocksPerChunk * blocksPerChunk];
+				int current = 0;
+				for (int y = 0; y < blocksPerChunk; y++) {
+					for (int x = 0; x < blocksPerChunk; x++) {
+						Block bg = gen.genBackground(i * blocksPerChunk + x, j * blocksPerChunk + y);
+						data[current] = bg.blockID;
+						current++;
+					}
+				}
+				Chunk c = new Chunk(i, j, data, bgChunks.size());
+				bgChunks.add(c);
+			}
+		}
+
+		int[] allBlocks = new int[bgChunks.size() * blocksPerChunk * blocksPerChunk];
+
+		for (Chunk c : bgChunks) {
+			bgChunkIDs[c.x + c.y * chunksPerWorld] = c.ID;
+			System.arraycopy(c.blocks, 0, allBlocks, c.ID * blocksPerChunk * blocksPerChunk,
+					blocksPerChunk * blocksPerChunk);
+		}
+
+		bgChunkBuffer = new VBO(GL46C.GL_SHADER_STORAGE_BUFFER);
+		bgChunkBuffer.bind();
+		bgChunkBuffer.storeData(allBlocks, GL46C.GL_STATIC_DRAW);
+		bgChunkBuffer.unbind();
+
+		bgWorldBuffer = new VBO(GL46C.GL_SHADER_STORAGE_BUFFER);
+		bgWorldBuffer.bind();
+		bgWorldBuffer.storeData(bgChunkIDs, GL46C.GL_STATIC_DRAW);
+		bgWorldBuffer.unbind();
+	}
+
+	public void update(Game game, Window window) {
+		Vector2f cameraPos = game.cameraPos();
+		float zoom = game.getZoom();
+		Vector2f screenSize = new Vector2f(window.getWidth(), window.getHeight());
+		Vector2f mouseCoords = window.cursorPos();
+		boolean isClicked = window.lmb() || window.rmb();
+		Block blockID = window.lmb() ? Block.AIR : window.gui.playerGUI.getBlock();
 
 		Vector2f mouseNDCCoords = new Vector2f(mouseCoords).div(screenSize).mul(new Vector2f(2.0f, -2.0f)).add(-1.0f,
 				1.0f);
@@ -299,9 +471,6 @@ public class World {
 		// Vector2f(blockCoords)).mul(blockPixelHeight);
 
 		int radius = 0;
-		if (blockID == Block.AIR) {
-			radius = 5;
-		}
 
 		if (isClicked) {
 			for (int j = -radius; j <= radius; j++) {
@@ -320,7 +489,8 @@ public class World {
 		for (var t : entities) {
 			t.update(this, game, window);
 		}
-
+		window.gui.debug.ambientLight = 1f - Math.abs(state);
+		window.gui.debug.gpuTime = averageMS;
 	}
 
 	int startTime() {
@@ -362,8 +532,8 @@ public class World {
 			int height = expectedHeight;
 
 			fbo.resize(width, height);
-			fbo.getAttachment("LIGHT").bindAsTexture(0, GL46C.GL_LINEAR, GL46C.GL_CLAMP_TO_EDGE);
-			fbo.getAttachment("LIGHT").unbindAsTexture(0);
+			fbo.getAttachment("GLOW").bindAsTexture(0, GL46C.GL_LINEAR, GL46C.GL_CLAMP_TO_EDGE);
+			fbo.getAttachment("GLOW").unbindAsTexture(0);
 
 			// colorTexture.delete();
 			// colorTexture = new Texture(width, height, GL46C.GL_RGBA16F,
@@ -377,10 +547,12 @@ public class World {
 			}
 			bloomCascade.clear();
 
+			int bloomFormat = fbo.getAttachment("GLOW").getFormat().internalFormat;
+
 			width /= 2;
 			height /= 2;
 			for (int i = 0; i < debug.bloomCascades; i++) {
-				bloomCascade.add(new Texture(width, height, GL46C.GL_RGBA16F, GL46C.GL_LINEAR));
+				bloomCascade.add(new Texture(width, height, bloomFormat, GL46C.GL_LINEAR));
 				width /= 2;
 				height /= 2;
 
@@ -435,9 +607,10 @@ public class World {
 
 		fbo.bind();
 		fbo.setViewport();
-		fbo.bindColorAttachments(List.of("COLOR", "LIGHT"));
+		fbo.bindColorAttachments(List.of("COLOR", "LIGHT", "GLOW"));
 		fbo.clearColorAttachment("COLOR", new Vector4f(0, 0, 0, 0));
 		fbo.clearColorAttachment("LIGHT", new Vector4f(0, 0, 0, 0));
+		fbo.clearColorAttachment("GLOW", new Vector4f(0, 0, 0, 0));
 
 		blockQuad.bind();
 		blockQuad.bindAttribute(0);
@@ -446,16 +619,57 @@ public class World {
 		blockAtlas.bindAsTexture(0);
 		blockGlowAtlas.bindAsTexture(1);
 
+		// foreground
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 0, worldBuffer.getID());
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 1, chunkBuffer.getID());
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 2, Light.BVHBuffer.getID());
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 3, Block.blocksInfo.getID());
 
+		// background
+		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 4, bgWorldBuffer.getID());
+		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 5, bgChunkBuffer.getID());
+
+		// altitudes
+		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 6, altitudesBuffer.getID());
+
 		worldShader.loadFloat("zoom", game.getZoom() * debug.scaleFactor);
 		worldShader.loadVec2("cameraPos", game.cameraPos());
 		worldShader.loadVec2("screenSize", new Vector2f(expectedWidth, expectedHeight));
 		worldShader.loadInt("time", totalFrames);
-		worldShader.loadFloat("glowPower", debug.glowPower);
+		worldShader.loadFloat("ambientLight", debug.ambientLight);
+
+		state += 2.0f / 60.0f / 60.0f;
+		for (int i = 0; i < states.length; i += 2) {
+			float min = states[i];
+			float max = states[i + 1];
+			if (state < max) {
+				Vector4f from = changes[i];
+				Vector4f to = changes[i + 1];
+				sky = new Vector4f(from).lerp(to, (state - min) / (max - min));
+				break;
+			}
+		}
+//
+//		// night
+//		if (state < -0.2f) {// state in [-1: -0.2f]
+//			sky = new Vector4f(night).lerp(dawn, (state - -1.0f) / (-0.2f - -1.0f));
+//			// prepare sun color
+//			sun.set(dawnSun);
+//		} else if (state < 0f) { // dawn
+//			sky = new Vector4f(dawn).lerp(day, (state - -0.2f) / (+0.0f - -0.2f));
+//		} else if (state < 0.8f) { // in [0, 0.8]
+//			sky = new Vector4f(day).lerp(dusk, (state - 0.0f) / (+0.8f - 0.0f));
+//			sun.set(daySun);
+//		} else if (state < 1f) { // in [0.8 : 1.0f]
+//			sky = new Vector4f(dusk).lerp(night, (state - 0.8f) / (+1.0f - 0.8f));
+//		}
+
+		if (state > 1.0f) {
+			state = -1.0f;
+		}
+		worldShader.loadVec4("skyColor", sky);
+		worldShader.loadVec4("sunColor", sun);
+		worldShader.loadVec2("sunPos", sunPos);
 
 		GL46C.glDrawArrays(GL46C.GL_TRIANGLE_STRIP, 0, 4);// draw fullscreen quad
 
@@ -466,6 +680,11 @@ public class World {
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 1, 0);
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 2, 0);
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 3, 0);
+
+		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 4, 0);
+		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 5, 0);
+		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 6, 0);
+
 		worldShader.stop();
 
 		entityShader.start();
@@ -473,8 +692,7 @@ public class World {
 		entityShader.loadVec2("cameraPos", game.cameraPos());
 		entityShader.loadVec2("screenSize", new Vector2f(expectedWidth, expectedHeight));
 		entityShader.loadInt("time", totalFrames);
-		entityShader.loadFloat("glowPower", debug.glowPower);
-
+		entityShader.loadFloat("ambientLight", debug.ambientLight);
 		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 2, Light.BVHBuffer.getID());
 
 		Matrix4f worldToNDC = new Matrix4f();
@@ -506,15 +724,19 @@ public class World {
 
 		GL46C.glViewport(0, 0, (int) game.screenSize.x, (int) game.screenSize.y);
 
+		int colorFormat = fbo.getAttachment("COLOR").getFormat().internalFormat;
+		int lightFormat = fbo.getAttachment("LIGHT").getFormat().internalFormat;
+		int bloomFormat = fbo.getAttachment("GLOW").getFormat().internalFormat;
+
 		// Bloom effect
 		if (debug.isBloomEnabled) {
-			bloomCascade.add(0, fbo.getAttachment("LIGHT"));
+			bloomCascade.add(0, fbo.getAttachment("GLOW"));
 
 			downScale.start();
 			for (int i = 0; i < bloomCascade.size() - 1; i++) {
 				bloomCascade.get(i).bindAsTexture(0);
 				GL46C.glBindImageTexture(0, bloomCascade.get(i + 1).getID(), 0, false, 0, GL46C.GL_WRITE_ONLY,
-						GL46C.GL_RGBA16F);
+						bloomFormat);
 
 				GL46C.glDispatchCompute((bloomCascade.get(i + 1).getWidth() + 15) / 16,
 						(bloomCascade.get(i + 1).getHeight() + 15) / 16, 1);
@@ -527,8 +749,7 @@ public class World {
 
 			for (int i = bloomCascade.size() - 2; i >= 0; i--) {
 				bloomCascade.get(i + 1).bindAsTexture(0);
-				GL46C.glBindImageTexture(0, bloomCascade.get(i).getID(), 0, false, 0, GL46C.GL_READ_WRITE,
-						GL46C.GL_RGBA16F);
+				GL46C.glBindImageTexture(0, bloomCascade.get(i).getID(), 0, false, 0, GL46C.GL_READ_WRITE, bloomFormat);
 
 				GL46C.glDispatchCompute((bloomCascade.get(i).getWidth() + 15) / 16,
 						(bloomCascade.get(i).getHeight() + 15) / 16, 1);
@@ -542,26 +763,22 @@ public class World {
 
 		// Tone mapping
 
-//		GL46C.glBindImageTexture(0, fbo.getAttachment("COLOR").getID(), 0, false, 0, GL46C.GL_READ_ONLY, GL46C.GL_RGBA16F);
-//		GL46C.glBindImageTexture(1, fbo.getAttachment("LIGHT").getID(), 0, false, 0, GL46C.GL_READ_ONLY, GL46C.GL_RGBA16F);
-
-		GL46C.glBindImageTexture(0, fbo.getAttachment("COLOR").getID(), 0, false, 0, GL46C.GL_READ_ONLY,
-				GL46C.GL_RGBA16F);
-		GL46C.glBindImageTexture(1, fbo.getAttachment("LIGHT").getID(), 0, false, 0, GL46C.GL_READ_ONLY,
-				GL46C.GL_RGBA16F);
-		GL46C.glBindImageTexture(2, postProcessTex.id, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA8);
+		GL46C.glBindImageTexture(0, fbo.getAttachment("COLOR").getID(), 0, false, 0, GL46C.GL_READ_ONLY, colorFormat);
+		GL46C.glBindImageTexture(1, fbo.getAttachment("LIGHT").getID(), 0, false, 0, GL46C.GL_READ_ONLY, lightFormat);
+		GL46C.glBindImageTexture(2, fbo.getAttachment("GLOW").getID(), 0, false, 0, GL46C.GL_READ_ONLY, bloomFormat);
+		GL46C.glBindImageTexture(3, postProcessTex.id, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA8);
 
 		postProcessShader.start();
 		postProcessShader.loadFloat("exposure", debug.toneMappingExposure);
+		postProcessShader.loadFloat("glowPower", debug.glowPower);
 		GL46C.glDispatchCompute((postProcessTex.width + 15) / 16, (postProcessTex.height + 15) / 16, 1);
 		GL46C.glMemoryBarrier(GL46C.GL_ALL_BARRIER_BITS);
 		postProcessShader.stop();
 
-		GL46C.glBindImageTexture(0, 0, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
-		GL46C.glBindImageTexture(1, 0, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA16F);
-		GL46C.glBindImageTexture(2, 0, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA8);
-
-		// select which texture to display
+		GL46C.glBindImageTexture(0, 0, 0, false, 0, GL46C.GL_WRITE_ONLY, colorFormat);
+		GL46C.glBindImageTexture(1, 0, 0, false, 0, GL46C.GL_WRITE_ONLY, lightFormat);
+		GL46C.glBindImageTexture(2, 0, 0, false, 0, GL46C.GL_WRITE_ONLY, bloomFormat);
+		GL46C.glBindImageTexture(3, 0, 0, false, 0, GL46C.GL_WRITE_ONLY, GL46C.GL_RGBA8);
 
 		// copy the image to screen
 		quadShader.start();
@@ -580,33 +797,59 @@ public class World {
 		if (times.size() > 120) {
 			times.remove(0);
 		}
+		averageMS = times.stream().mapToDouble(l -> (double) l * 1.0E-6).average().getAsDouble();
 
-		double averageMS = times.stream().mapToDouble(l -> (double) l * 1.0E-6).average().getAsDouble();
-
-		DecimalFormat format = new DecimalFormat("#.###");
-		System.out.println(format.format(averageMS) + " ms");
-
-//		Light.renderDebug(game);
+//		double averageMS = times.stream().mapToDouble(l -> (double) l * 1.0E-6).average().getAsDouble();
+//		DecimalFormat format = new DecimalFormat("#.###");
+//		System.out.println(format.format(averageMS) + " ms");
+//
+		Light.renderDebug(game);
 	}
 
 	public void save() {
 		try {
-			DataOutputStream dos = new DataOutputStream(
+			// foreground
+			DataOutputStream chunksSave = new DataOutputStream(
 					new BufferedOutputStream(new FileOutputStream(new File(savePath + "/chunks.save"))));
-			DataOutputStream dos2 = new DataOutputStream(
+			DataOutputStream blocksSave = new DataOutputStream(
 					new BufferedOutputStream(new FileOutputStream(new File(savePath + "/blocks.save"))));
 
 			for (Chunk c : chunks) {
 				for (int i = 0; i < c.blocks.length; i++) {
-					dos2.writeInt(c.blocks[i]);
+					blocksSave.writeInt(c.blocks[i]);
 				}
-				dos.writeInt(c.x);
-				dos.writeInt(c.y);
+				chunksSave.writeInt(c.x);
+				chunksSave.writeInt(c.y);
 			}
-			dos.close();
-			dos2.close();
-		} catch (Exception e3) {
-			e3.printStackTrace();
+			chunksSave.close();
+			blocksSave.close();
+
+			// background
+			DataOutputStream BGchunksSave = new DataOutputStream(
+					new BufferedOutputStream(new FileOutputStream(new File(savePath + "/BGchunks.save"))));
+			DataOutputStream BGblocksSave = new DataOutputStream(
+					new BufferedOutputStream(new FileOutputStream(new File(savePath + "/BGblocks.save"))));
+
+			for (Chunk c : bgChunks) {
+				for (int i = 0; i < c.blocks.length; i++) {
+					BGblocksSave.writeInt(c.blocks[i]);
+				}
+				BGchunksSave.writeInt(c.x);
+				BGchunksSave.writeInt(c.y);
+			}
+			BGchunksSave.close();
+			BGblocksSave.close();
+
+			// terrain altitude
+			DataOutputStream altitudeSave = new DataOutputStream(
+					new BufferedOutputStream(new FileOutputStream(new File(savePath + "/altitudes.save"))));
+			for (int x = 0; x < altitudes.length; x++) {
+				int y = altitudes[x];
+				altitudeSave.writeInt(y);
+			}
+			altitudeSave.close();
+		} catch (Exception e) {
+			e.printStackTrace();
 		}
 	}
 }

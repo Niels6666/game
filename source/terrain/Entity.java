@@ -24,7 +24,7 @@ public abstract class Entity {
         this.halfSize = halfSize;
 
 		this.node = new BVHNode<Entity>(new AABB(position, Math.max(halfSize.x, halfSize.y)), this);
-		bvh.add(node);
+		bvh.addPublic(node);
     }
 
     public Vector2f getPosition(){
@@ -48,7 +48,7 @@ public abstract class Entity {
 
 	public void delete() {
         internalDelete();
-		bvh.remove(node);
+		bvh.removePublic(node);
 	}
 	
 }
