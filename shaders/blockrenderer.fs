@@ -75,7 +75,7 @@ layout(std430, binding = 5) restrict readonly buffer bgChunkBuffer {
 //altitudes
 /////////////
 layout(std430, binding = 6) restrict readonly buffer altitudesBuffer {
-	int altitudes[];
+	float altitudes[];
 };
 
 //////////
@@ -85,8 +85,8 @@ uniform vec2 cameraPos;
 uniform vec2 screenSize;
 uniform int time;
 uniform float zoom;
-uniform float ambientLight;
-uniform vec4 skyColor;
+uniform vec4 surfaceAmbientLight;
+uniform vec4 depthAmbientLight;
 uniform vec4 sunColor;
 uniform vec2 sunPos;
 
@@ -138,15 +138,15 @@ vec4 illumination(vec2 worldPos){
 
 void main(){
     
-    vec2 onScreenPixelCoords = gl_FragCoord.xy - screenSize / 2.0;
-    vec2 worldCoords = onScreenPixelCoords / blockPixelHeight * zoom 
-        + cameraPos;
+    const vec2 onScreenPixelCoords = gl_FragCoord.xy - screenSize / 2.0;
+    const vec2 worldCoords = onScreenPixelCoords / blockPixelHeight * zoom 
+       								 + cameraPos;
 
-    ivec2 blockGlobalCoords = ivec2(floor(worldCoords));
-    vec2 pixelLocalCoords = (worldCoords - blockGlobalCoords) * blockPixelHeight;
+    const ivec2 blockGlobalCoords = ivec2(floor(worldCoords));
+    const vec2 pixelLocalCoords = (worldCoords - blockGlobalCoords) * blockPixelHeight;
     
-    ivec2 chunkCoords = ivec2(floor(worldCoords / blocksPerChunk));
-    ivec2 blockLocalCoords = blockGlobalCoords - chunkCoords * blocksPerChunk;
+    const ivec2 chunkCoords = ivec2(floor(worldCoords / blocksPerChunk));
+    const ivec2 blockLocalCoords = blockGlobalCoords - chunkCoords * blocksPerChunk;
 
     bool insideWorld = chunkCoords.x >= 0 && chunkCoords.y >= 0 && 
                 chunkCoords.x < chunksPerWorld && chunkCoords.y < chunksPerWorld;
@@ -205,6 +205,18 @@ void main(){
 		    }
 		}
     }
+
+	float surfaceHeight = mix(
+			altitudes[blockGlobalCoords.x], 
+			altitudes[blockGlobalCoords.x+1],
+			fract(worldCoords.x) 
+		);
+
+	float surfaceGradient = smoothstep(
+								worldCoords.y - 20, 
+								worldCoords.y,
+								surfaceHeight
+							);
     
     //test again for the sky
     if(colorOutput.a < 1){
@@ -215,17 +227,11 @@ void main(){
      		colorOutput = sunColor;
      		glowOutput = sunColor;
      	}else{
-	    	colorOutput = skyColor;
+	    	//the sky is drawn in the post process shader
      	}
     }
-    
-	lightOutput += max(ambientLight, 0.2f) * skyColor * 
-						max(smoothstep(
-								blockGlobalCoords.y - 20, 
-								blockGlobalCoords.y,
-								altitudes[blockGlobalCoords.x]
-							), 
-							0.2f);
+
+	lightOutput += mix(depthAmbientLight, surfaceAmbientLight, surfaceGradient);
     
     
 }

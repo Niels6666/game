@@ -6,7 +6,7 @@ import terrain.World;
 
 public class Camera {
 	public float zoom = 1f;
-	public Vector2f pos = new Vector2f(World.chunksPerWorld / 2.0f * World.blocksPerChunk);
+	public Vector2f pos = new Vector2f(World.chunksPerWorld / 2.0f * World.blocksPerChunk, 200);
 
 	public Camera() {
 	}

@@ -39,7 +39,8 @@ public class Debug implements Component {
 	public float bloomWeight = 1.0f;
 	public float toneMappingExposure = 0.25f;
 	public float glowPower = 1.0f;
-	public float ambientLight = 0.0f;
+	public float timeofday = 0.0f;
+	public boolean timePaused = true;
 	public boolean rebuildBloomCascades = false;
 	public int scaleFactor = 2;
 
@@ -83,7 +84,7 @@ public class Debug implements Component {
 //			w.menu_border(0);
 //			w.menu_border_color().set(c);
 //			w.min_row_height_padding(0);
-			
+
 			if (nk_begin(ctx, title(), rect, flags)) {
 //				float height = 25;
 				float height = 0;
@@ -120,8 +121,9 @@ public class Debug implements Component {
 				bloomWeight = nk_propertyf(ctx, "Bloom weight", 0, bloomWeight, 2, 0.01f, 0.005f);
 				toneMappingExposure = nk_propertyf(ctx, "Exposure", 0, toneMappingExposure, 100, 0.01f, 0.005f);
 				glowPower = nk_propertyf(ctx, "Glow power", 0, glowPower, 100, 0.01f, 0.005f);
-				ambientLight = nk_propertyf(ctx, "Ambient light", 0, ambientLight, 1, 0.01f, 0.005f);
-
+				timePaused = nk_check_text(ctx, "time paused", timePaused);
+				if (timePaused)
+					timeofday = nk_propertyf(ctx, "Time of day", -1.0f, timeofday, 1f, 0.01f, 0.005f);
 				scaleFactor = nk_propertyi(ctx, "scale factor", 1, scaleFactor, 5, 1, 0.005f);
 				// public float bloomWeight = 1.0f;
 				// public float toneMappingExposure = 1.0f;

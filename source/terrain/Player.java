@@ -24,7 +24,7 @@ public class Player extends Entity {
 
 	static final Vector2f PlayerSize = new Vector2f(1f, 1f);
 	static final Vector2f HitboxSize = new Vector2f(0.3f, 0.95f);
-	static final float moveSpeed = 5f;
+	static final float moveSpeed = 3f;
 	static final float gravity = +40;
 
 	Light light;
@@ -37,9 +37,9 @@ public class Player extends Entity {
 
 		try {
 			texture.add(new Texture("images/entity/player/player_front.png"));
+
 			texture.add(new Texture("images/entity/player/player_left.png"));
 			texture.add(new Texture("images/entity/player/player_left2.png"));
-
 			texture.add(new Texture("images/entity/player/player_right.png"));
 			texture.add(new Texture("images/entity/player/player_right2.png"));
 
@@ -84,11 +84,11 @@ public class Player extends Entity {
 			sprint = window.keyPressed(GLFW.GLFW_KEY_LEFT_SHIFT);
 
 			if (window.keyPressed(GLFW.GLFW_KEY_A) || window.keyPressed(GLFW.GLFW_KEY_LEFT)) {
-				delta.x -= (moveSpeed + (sprint ? 5 : 0)) * timeStep;
+				delta.x -= (moveSpeed + (sprint ? 7 : 0)) * timeStep;
 				orientation = Orientation.LEFT;
 			}
 			if (window.keyPressed(GLFW.GLFW_KEY_D) || window.keyPressed(GLFW.GLFW_KEY_RIGHT)) {
-				delta.x += (moveSpeed + (sprint ? 5 : 0)) * timeStep;
+				delta.x += (moveSpeed + (sprint ? 7 : 0)) * timeStep;
 				orientation = Orientation.RIGHT;
 			}
 			if (window.keyPressed(GLFW.GLFW_KEY_W) || window.keyPressed(GLFW.GLFW_KEY_UP)

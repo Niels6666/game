@@ -33,7 +33,7 @@ uniform float zoom;
 uniform vec2 cameraPos;
 uniform vec2 screenSize;
 uniform int time;
-uniform float ambientLight;
+uniform vec4 ambientLight;
 
 in vec2 texCoords;
 
