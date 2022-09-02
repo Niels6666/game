@@ -81,13 +81,19 @@ public class Game {
 			if(window.keyPressed(GLFW.GLFW_KEY_KP_ENTER)) {
 				w.generate();
 			}
-		} else {
+		} else if(!window.gui.debug.controllingDrill){
 
-			Vector2f target = w.entities.get(0).getPosition();
+			Vector2f target = w.player.getPosition();
 			cam.pos.lerp(target, 0.1f);
 
-//			cam.pos.mul(20).round().div(20);
+			//cam.pos.mul(20).round().div(20);
 
+		}else if(window.gui.debug.controllingDrill){
+			Vector2f target = new Vector2f(w.drill.getPosition());
+				//.add(w.drill.drillDir.x * 10, w.drill.drillDir.y * 10);
+			cam.pos.lerp(target, 0.1f);
+			
+			//cam.pos.mul(20).round().div(20);
 		}
 
 		screenSize = new Vector2f(window.getWidth(), window.getHeight());

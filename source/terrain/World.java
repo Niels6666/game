@@ -30,7 +30,6 @@ import org.joml.Vector4f;
 import org.lwjgl.opengl.GL46C;
 import org.lwjgl.system.MemoryStack;
 
-import display.Color;
 import display.Debug;
 import engine.Game;
 import engine.Window;
@@ -39,7 +38,7 @@ import opengl.OpenGLSurface;
 import opengl.QueryBuffer;
 import opengl.Shader;
 import opengl.Texture;
-import opengl.TextureAtlas;
+import opengl.TextureArray;
 import opengl.VAO;
 import opengl.VBO;
 
@@ -73,8 +72,8 @@ public class World {
 	Shader quadShader;
 	Shader downScale;
 	Shader upScale;
-	TextureAtlas blockAtlas;
-	TextureAtlas blockGlowAtlas;
+	TextureArray blockAtlas;
+	TextureArray blockGlowAtlas;
 
 	FBO fbo;
 	public List<OpenGLSurface> bloomCascade;
@@ -108,8 +107,7 @@ public class World {
 	final Vector4f[] changes = new Vector4f[] { //
 			night, dawn, // -1.0f, -0.2f
 			dawn, day, // -0.2f, 0.0f
-			day, day,
-			day, dusk, // 0.0f, 0.8f
+			day, day, day, dusk, // 0.0f, 0.8f
 			dusk, night // 0.8f, 1.0f
 	};
 
@@ -121,10 +119,16 @@ public class World {
 	 */
 	Vector2f sunPos = new Vector2f(WorldOrigin.x - 130, 40);
 
-	Player player;
+	Physics physics;
+
+	public Player player;
+	public Drill drill;
 
 	public World(String savePath) throws Exception {
 		this.savePath = savePath;
+
+		physics = new Physics(this);
+
 		Block.createBlocksInfo();
 		blockAtlas = Block.atlas;
 		blockGlowAtlas = Block.glowAtlas;
@@ -176,6 +180,8 @@ public class World {
 			System.arraycopy(c.blocks, 0, allBlocks, c.ID * blocksPerChunk * blocksPerChunk,
 					blocksPerChunk * blocksPerChunk);
 		}
+
+		physics.computeGround();
 
 		chunkBuffer = new VBO(GL46C.GL_SHADER_STORAGE_BUFFER);
 		chunkBuffer.bind();
@@ -283,7 +289,8 @@ public class World {
 				"cameraPos", //
 				"screenSize", //
 				"time", //
-				"ambientLight"));//
+				"surfaceAmbientLight", //
+				"depthAmbientLight"));//
 
 		postProcessShader = new Shader("shaders/postpross.cs");
 		postProcessShader.finishInit();
@@ -330,6 +337,7 @@ public class World {
 		queries = new QueryBuffer(GL46C.GL_TIME_ELAPSED);
 
 		entities.add(player = new Player(new Vector2f(WorldOrigin.x, 0)));
+		entities.add(drill = new Drill(new Vector2f(WorldOrigin.x, 400)));
 	}
 
 	private ByteBuffer loadBuffer(String path) throws IOException {
@@ -340,7 +348,31 @@ public class World {
 		return ret;
 	}
 
-	public Chunk getChunk(Vector2i blockCoords, Vector2i localBlockCoords) {
+	public Chunk getChunk(Vector2i chunkCoords) {
+		boolean insideWorld = chunkCoords.x >= 0 && chunkCoords.y >= 0 && chunkCoords.x < chunksPerWorld
+				&& chunkCoords.y < chunksPerWorld;
+
+		if (!insideWorld) {
+			return null;
+		}
+
+		int chunk_id = chunkIDs[chunkCoords.x + chunkCoords.y * chunksPerWorld];
+		Chunk c = null;
+		if (chunk_id == -1) {
+			chunk_id = chunks.size();
+			int blockIDs[] = new int[blocksPerChunk * blocksPerChunk];
+			Arrays.fill(blockIDs, 0);
+			c = new Chunk(chunkCoords.x, chunkCoords.y, blockIDs, chunk_id);
+			chunks.add(c);
+			chunkIDs[chunkCoords.x + chunkCoords.y * chunksPerWorld] = chunk_id;
+			updateWorldBuffer = true;
+		} else {
+			c = chunks.get(chunk_id);
+		}
+		return c;
+	}
+
+	private Chunk getChunk(Vector2i blockCoords, Vector2i localBlockCoords) {
 		if (blockCoords.x < 0 || blockCoords.y < 0) {
 			return null;
 		}
@@ -370,9 +402,7 @@ public class World {
 		return c;
 	}
 
-	public Block getBlock(Vector2f worldCoords) {
-		Vector2i blockCoords = new Vector2i().set(worldCoords, RoundingMode.FLOOR);
-
+	public Block getBlock(Vector2i blockCoords) {
 		Vector2i localBlockCoords = new Vector2i();
 		Chunk c = getChunk(blockCoords, localBlockCoords);
 
@@ -383,6 +413,10 @@ public class World {
 		int id = c.blocks[localBlockCoords.x + localBlockCoords.y * blocksPerChunk];
 
 		return Block.blockFromID(id);
+	}
+
+	public Block getBlock(Vector2f worldCoords) {
+		return getBlock(new Vector2i().set(worldCoords, RoundingMode.FLOOR));
 	}
 
 	public void setBlock(Vector2i blockCoords, Block blockID) {
@@ -498,6 +532,7 @@ public class World {
 		bgWorldBuffer.bind();
 		bgWorldBuffer.storeData(bgChunkIDs, GL46C.GL_STATIC_DRAW);
 		bgWorldBuffer.unbind();
+
 	}
 
 	public void update(Game game, Window window) {
@@ -505,7 +540,7 @@ public class World {
 		float zoom = game.getZoom();
 		Vector2f screenSize = new Vector2f(window.getWidth(), window.getHeight());
 		Vector2f mouseCoords = window.cursorPos();
-		boolean isClicked = window.lmb() || window.rmb();
+		boolean isClicked = (window.lmb() || window.rmb()) && !window.gui.debug.controllingDrill;
 		Block blockID = window.lmb() ? Block.AIR : window.gui.playerGUI.getBlock();
 
 		Vector2f mouseNDCCoords = new Vector2f(mouseCoords)//
@@ -643,14 +678,23 @@ public class World {
 				chunksToUpdate.addAll(chunks);
 			}
 
+			boolean recomputeAllCollisionMeshes = chunksToUpdate.size() == chunksPerWorld * chunksPerWorld;
+
 			// copy the new chunks
 			IntBuffer buff = GL46C.glMapNamedBuffer(chunkBuffer.getID(), GL46C.GL_WRITE_ONLY).asIntBuffer();
 			for (Chunk c : chunksToUpdate) {
 				for (int i = 0; i < c.blocks.length; i++) {
 					buff.put(i + c.ID * c.blocks.length, c.blocks[i]);
 				}
+				if(!recomputeAllCollisionMeshes)
+					c.recomputeCollisionMesh(this);
 			}
 			GL46C.glUnmapNamedBuffer(chunkBuffer.getID());
+
+			if (recomputeAllCollisionMeshes) {
+				physics.computeGround();
+			}
+
 			chunksToUpdate.clear();
 		}
 
@@ -694,7 +738,7 @@ public class World {
 		worldShader.loadInt("time", totalFrames);
 		Vector4f light = new Vector4f(1f - Math.abs(state));
 		worldShader.loadVec4("surfaceAmbientLight", light);
-		worldShader.loadVec4("depthAmbientLight", new Vector4f(0.076f));
+		worldShader.loadVec4("depthAmbientLight", new Vector4f(0.006f));
 
 		if (debug.timePaused) {
 			state = debug.timeofday;
@@ -731,9 +775,9 @@ public class World {
 		}
 		worldShader.loadVec4("sunColor", sun);
 
-		float teta = (float) ((state*0.5 + 1.5f) * Math.PI);
+		float teta = (float) ((state * 0.5 + 1.5f) * Math.PI);
 		float r = 1200;
-		Vector2f pos = new Vector2f(WorldOrigin).add(r * (float)Math.cos(teta), r * (float)Math.sin(teta));
+		Vector2f pos = new Vector2f(WorldOrigin).add(r * (float) Math.cos(teta), r * (float) Math.sin(teta));
 		worldShader.loadVec2("sunPos", pos);
 
 		GL46C.glDrawArrays(GL46C.GL_TRIANGLE_STRIP, 0, 4);// draw fullscreen quad
@@ -757,8 +801,10 @@ public class World {
 		entityShader.loadVec2("cameraPos", game.cameraPos());
 		entityShader.loadVec2("screenSize", new Vector2f(expectedWidth, expectedHeight));
 		entityShader.loadInt("time", totalFrames);
-		entityShader.loadVec4("ambientLight", light);
-		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 2, Light.BVHBuffer.getID());
+		entityShader.loadVec4("surfaceAmbientLight", light);
+		entityShader.loadVec4("depthAmbientLight", new Vector4f(0.006f));
+		GL46C.glBindBufferBase(storage, 2, Light.BVHBuffer.getID());
+		GL46C.glBindBufferBase(storage, 6, altitudesBuffer.getID());
 
 		Matrix4f worldToNDC = new Matrix4f();
 		worldToNDC.m00(expectedWidth * game.getZoom() / blockPixelHeight);
@@ -768,18 +814,11 @@ public class World {
 		worldToNDC.invertAffine();
 
 		for (Entity entity : entities) {
-
-			Matrix4f T = new Matrix4f(worldToNDC).mul(entity.getTransform());
-			entityShader.loadMat4("transform", T);
-
-			entity.getTexture().bindAsTexture(0);
-			entity.getGlowTexture().bindAsTexture(1);
-			GL46C.glDrawArrays(GL46C.GL_TRIANGLE_STRIP, 0, 4);// draw quad
-			entity.getTexture().unbindAsTexture(0);
-			entity.getGlowTexture().unbindAsTexture(1);
+			entity.render(entityShader, worldToNDC);
 		}
 
-		GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 2, 0);
+		GL46C.glBindBufferBase(storage, 2, 0);
+		GL46C.glBindBufferBase(storage, 6, 0);
 		entityShader.stop();
 
 		blockQuad.unbindAttribute(0);
@@ -870,13 +909,27 @@ public class World {
 		if (times.size() > 120) {
 			times.remove(0);
 		}
+
 		averageMS = times.stream().mapToDouble(l -> (double) l * 1.0E-6).average().getAsDouble();
 
 //		double averageMS = times.stream().mapToDouble(l -> (double) l * 1.0E-6).average().getAsDouble();
 //		DecimalFormat format = new DecimalFormat("#.###");
 //		System.out.println(format.format(averageMS) + " ms");
 //
-		Light.renderDebug(game);
+//		Light.renderDebug(game);
+		physics.renderDebug(game);
+	}
+
+	public Vector2f getMouseWorldCoords(Window window, Game game) {
+		Vector2f screenSize = new Vector2f(window.getWidth(), window.getHeight());
+		Vector2f mouseCoords = window.cursorPos();
+
+		Vector2f mouseNDCCoords = new Vector2f(mouseCoords).div(screenSize).mul(new Vector2f(2.0f, -2.0f)).add(-1.0f,
+				1.0f);
+		Vector2f mouseTexCoords = new Vector2f(mouseNDCCoords).mul(0.5f, -0.5f).add(0.5f, 0.5f);
+		Vector2f worldCoords = new Vector2f(mouseTexCoords).add(-0.5f, -0.5f).mul(screenSize)
+				.mul(game.getZoom() / World.blockPixelHeight).add(game.cameraPos());
+		return worldCoords;
 	}
 
 	public void save() {

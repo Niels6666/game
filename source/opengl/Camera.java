@@ -38,7 +38,7 @@ public class Camera {
 	 * reset zoom to 1 and pos to origin
 	 */
 	public void reset() {
-		zoom = 1f;
+		zoom = 1.0f / 16.0f;
 		pos.set(World.chunksPerWorld / 2.0f * World.blocksPerChunk);
 	}
 }

@@ -9,7 +9,7 @@ import terrain.World;
 public class TextureAtlas extends Texture {
 	public TextureAtlas(List<Texture> textures) {
 		super((int) Math.ceil(Math.sqrt(textures.size())) * World.blockPixelHeight,
-				(int) Math.ceil(Math.sqrt(textures.size())) * World.blockPixelHeight, GL46C.GL_RGBA8, GL46C.GL_NEAREST);
+				(int) Math.ceil(Math.sqrt(textures.size())) * World.blockPixelHeight, GL46C.GL_RGBA8, GL46C.GL_LINEAR);
 
 		int drawY = 0;
 		int currentCol = 0;

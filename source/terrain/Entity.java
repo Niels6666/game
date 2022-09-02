@@ -5,6 +5,7 @@ import org.joml.Vector2f;
 
 import engine.Game;
 import engine.Window;
+import opengl.Shader;
 import opengl.Texture;
 
 public abstract class Entity {
@@ -31,10 +32,7 @@ public abstract class Entity {
         return position;
     }
     
-    abstract Matrix4f getTransform();
-    abstract Texture getTexture();
-    abstract Texture getGlowTexture();
-
+    public abstract void render(Shader entityShader, Matrix4f worldToNDC);
     protected abstract boolean internalUpdate(World w, Game game, Window window);
     protected abstract void internalDelete();
     

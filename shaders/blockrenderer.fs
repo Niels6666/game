@@ -34,8 +34,10 @@ struct BlockInfo{
 	int padding;
 };
 
-layout(binding = 0) uniform sampler2D TextureAtlas;
-layout(binding = 1) uniform sampler2D TextureGlowAtlas;
+//layout(binding = 0) uniform sampler2D TextureAtlas;
+//layout(binding = 1) uniform sampler2D TextureGlowAtlas;
+layout(binding = 0) uniform sampler2DArray TextureAtlas;
+layout(binding = 1) uniform sampler2DArray TextureGlowAtlas;
 
 layout(location = 0) out vec4 colorOutput;
 layout(location = 1) out vec4 lightOutput;
@@ -143,8 +145,9 @@ void main(){
        								 + cameraPos;
 
     const ivec2 blockGlobalCoords = ivec2(floor(worldCoords));
-    const vec2 pixelLocalCoords = (worldCoords - blockGlobalCoords) * blockPixelHeight;
-    
+    //const vec2 pixelLocalCoords = (worldCoords - blockGlobalCoords) * blockPixelHeight;
+    const vec2 pixelLocalCoords = (worldCoords - blockGlobalCoords);
+   
     const ivec2 chunkCoords = ivec2(floor(worldCoords / blocksPerChunk));
     const ivec2 blockLocalCoords = blockGlobalCoords - chunkCoords * blocksPerChunk;
 
@@ -168,11 +171,16 @@ void main(){
             	blockID += (time / blockInfos[blockID].animationSpeed) % blockInfos[blockID].animationLength;
             }
 
-            ivec2 atlasSize = textureSize(TextureAtlas, 0) / blockPixelHeight;
-	        ivec2 atlasCoords = ivec2(blockID % atlasSize.x, blockID / atlasSize.x);
-	
-		    colorOutput = texelFetch(TextureAtlas, ivec2(atlasCoords * blockPixelHeight + pixelLocalCoords), 0);
-		    glowOutput = texelFetch(TextureGlowAtlas, ivec2(atlasCoords * blockPixelHeight + pixelLocalCoords), 0);
+			//before
+            //ivec2 atlasSize = textureSize(TextureAtlas, 0) / blockPixelHeight;
+	        //ivec2 atlasCoords = ivec2(blockID % atlasSize.x, blockID / atlasSize.x);
+			//vec2 texCoords = atlasCoords * blockPixelHeight + pixelLocalCoords;
+		    //colorOutput = texelFetch(TextureAtlas, ivec2(texCoords), 0);
+		    //glowOutput = texelFetch(TextureGlowAtlas, ivec2(texCoords), 0);
+		    
+		    colorOutput = texture(TextureAtlas, vec3(worldCoords, blockID));
+		    glowOutput = texture(TextureGlowAtlas, vec3(worldCoords, blockID));
+
             glowOutput.grb *= glowOutput.a;
         }
         
@@ -196,11 +204,13 @@ void main(){
 		        	BGblockID += (time / blockInfos[BGblockID].animationSpeed) % blockInfos[BGblockID].animationLength;
 		        }
 		
-		        ivec2 atlasSize = textureSize(TextureAtlas, 0) / blockPixelHeight;
-		        ivec2 atlasCoords = ivec2(BGblockID % atlasSize.x, BGblockID / atlasSize.x);
-		
-			    colorOutput = texelFetch(TextureAtlas, ivec2(atlasCoords * blockPixelHeight + pixelLocalCoords), 0);
-			    //darken it to give the 'background' impression
+				//Before
+		        //ivec2 atlasSize = textureSize(TextureAtlas, 0) / blockPixelHeight;
+		        //ivec2 atlasCoords = ivec2(BGblockID % atlasSize.x, BGblockID / atlasSize.x);
+			    //colorOutput = texelFetch(TextureAtlas, ivec2(atlasCoords * blockPixelHeight + pixelLocalCoords), 0);
+			    colorOutput = texture(TextureAtlas, vec3(pixelLocalCoords, BGblockID));
+		    
+				//darken it to give the 'background' impression
 			    colorOutput.grb *= 0.4;
 		    }
 		}

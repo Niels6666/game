@@ -45,6 +45,7 @@ public class Debug implements Component {
 	public int scaleFactor = 2;
 
 	public boolean freeCamera = true;
+	public boolean controllingDrill = false;
 
 	public Debug(Game game) {
 		this.game = game;
@@ -133,6 +134,12 @@ public class Debug implements Component {
 
 				nk_layout_row_dynamic(ctx, height, 1);
 				freeCamera = nk_check_text(ctx, "free camera", freeCamera);
+				if(freeCamera) controllingDrill = false;
+
+				nk_layout_row_dynamic(ctx, height, 1);
+				controllingDrill = nk_check_text(ctx, "Controlling drill", controllingDrill);
+				if(controllingDrill) freeCamera = false;
+
 
 				nk_layout_row_dynamic(ctx, height, 1);
 				if (nk_button_label(ctx, "generate terrain")) {

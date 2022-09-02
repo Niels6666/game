@@ -7,24 +7,30 @@ import java.util.List;
 import org.joml.Matrix4f;
 import org.joml.Vector2f;
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.opengl.GL46C;
 
 import engine.Game;
 import engine.Window;
+import opengl.Shader;
 import opengl.Texture;
 
 public class Player extends Entity {
-	Orientation orientation = Orientation.FRONT;
-
+	/**
+	 * animation
+	 */
 	List<Texture> texture = new ArrayList<>();
 	List<Texture> glowTexture = new ArrayList<>();
+	Orientation orientation = Orientation.FRONT;
 	int animation = 0;
 	boolean sprint = false;
 
+	/**
+	 * physics
+	 */
 	Vector2f velocity = new Vector2f();
-
 	static final Vector2f PlayerSize = new Vector2f(1f, 1f);
 	static final Vector2f HitboxSize = new Vector2f(0.3f, 0.95f);
-	static final float moveSpeed = 3f;
+	static final float moveSpeed = 4f;
 	static final float gravity = +40;
 
 	Light light;
@@ -36,22 +42,30 @@ public class Player extends Entity {
 		light.innerRadius = 2;
 
 		try {
-			texture.add(new Texture("images/entity/player/player_front.png"));
+			String path = "images/entity/player/front/";
+			loadTex(path + "player.png", path + "player_glow.png");
+			loadTex(path + "player_exhale.png", path + "player_exhale_glow.png");
 
-			texture.add(new Texture("images/entity/player/player_left.png"));
-			texture.add(new Texture("images/entity/player/player_left2.png"));
-			texture.add(new Texture("images/entity/player/player_right.png"));
-			texture.add(new Texture("images/entity/player/player_right2.png"));
+			path = "images/entity/player/left/";
+			loadTex(path + "player.png", path + "player_glow.png");
+			loadTex(path + "player2.png", path + "player_glow2.png");
 
-			glowTexture.add(new Texture("images/entity/player/player_front_glow.png"));
-			glowTexture.add(new Texture("images/entity/player/player_left_glow.png"));
-			glowTexture.add(new Texture("images/entity/player/player_left_glow2.png"));
-			glowTexture.add(new Texture("images/entity/player/player_right_glow.png"));
-			glowTexture.add(new Texture("images/entity/player/player_right_glow2.png"));
+			path = "images/entity/player/right/";
+			loadTex(path + "player.png", path + "player_glow.png");
+			loadTex(path + "player2.png", path + "player_glow2.png");
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
+	}
 
+	/**
+	 * load the texture and its glow version
+	 * 
+	 * @throws IOException
+	 */
+	private void loadTex(String normal, String glow) throws IOException {
+		texture.add(new Texture(normal));
+		glowTexture.add(new Texture(glow));
 	}
 
 	Matrix4f getTransform() {
@@ -79,16 +93,16 @@ public class Player extends Entity {
 
 		boolean wantsToJump = false;
 
-		if (!window.gui.debug.freeCamera) {
+		if (!window.gui.debug.freeCamera && !window.gui.debug.controllingDrill) {
 			orientation = Orientation.FRONT;
 			sprint = window.keyPressed(GLFW.GLFW_KEY_LEFT_SHIFT);
 
 			if (window.keyPressed(GLFW.GLFW_KEY_A) || window.keyPressed(GLFW.GLFW_KEY_LEFT)) {
-				delta.x -= (moveSpeed + (sprint ? 7 : 0)) * timeStep;
+				delta.x -= (moveSpeed + (sprint ? 4 : 0)) * timeStep;
 				orientation = Orientation.LEFT;
 			}
 			if (window.keyPressed(GLFW.GLFW_KEY_D) || window.keyPressed(GLFW.GLFW_KEY_RIGHT)) {
-				delta.x += (moveSpeed + (sprint ? 7 : 0)) * timeStep;
+				delta.x += (moveSpeed + (sprint ? 4 : 0)) * timeStep;
 				orientation = Orientation.RIGHT;
 			}
 			if (window.keyPressed(GLFW.GLFW_KEY_W) || window.keyPressed(GLFW.GLFW_KEY_UP)
@@ -180,19 +194,23 @@ public class Player extends Entity {
 
 		position.add(delta);
 
-		Vector2f screenSize = new Vector2f(window.getWidth(), window.getHeight());
-		Vector2f mouseCoords = window.cursorPos();
+		if (!window.gui.debug.controllingDrill && !window.gui.debug.freeCamera) {
 
-		Vector2f mouseNDCCoords = new Vector2f(mouseCoords).div(screenSize).mul(new Vector2f(2.0f, -2.0f)).add(-1.0f,
-				1.0f);
-		Vector2f mouseTexCoords = new Vector2f(mouseNDCCoords).mul(0.5f, -0.5f).add(0.5f, 0.5f);
-		Vector2f worldCoords = new Vector2f(mouseTexCoords).add(-0.5f, -0.5f).mul(screenSize)
-				.mul(game.getZoom() / World.blockPixelHeight).add(game.cameraPos());
+			Vector2f screenSize = new Vector2f(window.getWidth(), window.getHeight());
+			Vector2f mouseCoords = window.cursorPos();
 
-		Vector2f direction = new Vector2f(worldCoords).sub(position);
-		direction.normalize();
+			Vector2f mouseNDCCoords = new Vector2f(mouseCoords).div(screenSize).mul(new Vector2f(2.0f, -2.0f))
+					.add(-1.0f, 1.0f);
+			Vector2f mouseTexCoords = new Vector2f(mouseNDCCoords).mul(0.5f, -0.5f).add(0.5f, 0.5f);
+			Vector2f worldCoords = new Vector2f(mouseTexCoords).add(-0.5f, -0.5f).mul(screenSize)
+					.mul(game.getZoom() / World.blockPixelHeight).add(game.cameraPos());
 
-		light.direction.set(direction);
+			Vector2f direction = new Vector2f(worldCoords).sub(position);
+			direction.normalize();
+
+			light.direction.set(direction);
+		}
+
 		light.angle = (float) (Math.PI / 2);
 		light.radius = 15;
 
@@ -200,17 +218,17 @@ public class Player extends Entity {
 
 		light.update();
 
-		int offset = (Math.cos(w.totalFrames / (sprint ? 1.5 : 3)) < 0 ? 0 : 1);
-
+		int respiration = Math.cos(w.totalFrames / 20) < 0 ? 0 : 1;
+		int walking = (Math.cos(w.totalFrames / (sprint ? 1.5 : 3)) < 0 ? 0 : 1);
 		switch (orientation) {
 		case FRONT:
-			animation = 0;
+			animation = respiration;
 			break;
 		case LEFT:
-			animation = 1 + offset;
+			animation = 2 + walking;
 			break;
 		case RIGHT:
-			animation = 3 + offset;
+			animation = 4 + walking;
 			break;
 		}
 		return true;
@@ -221,11 +239,16 @@ public class Player extends Entity {
 		glowTexture.forEach(Texture::delete);
 	}
 
-	Texture getTexture() {
-		return texture.get(animation);
+	@Override
+	public void render(Shader entityShader, Matrix4f worldToNDC) {
+		Matrix4f T = new Matrix4f(worldToNDC).mul(getTransform());
+		entityShader.loadMat4("transform", T);
+
+		texture.get(animation).bindAsTexture(0);
+		glowTexture.get(animation).bindAsTexture(1);
+		GL46C.glDrawArrays(GL46C.GL_TRIANGLE_STRIP, 0, 4);// draw quad
+		texture.get(animation).unbindAsTexture(0);
+		glowTexture.get(animation).unbindAsTexture(1);
 	}
 
-	Texture getGlowTexture() {
-		return glowTexture.get(animation);
-	}
 }

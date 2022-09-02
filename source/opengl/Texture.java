@@ -28,6 +28,7 @@ public class Texture implements OpenGLSurface {
 	public int id;
 	public int width;
 	public int height;
+	public String path;
 
 	public Texture(int width, int height, int format, int filter) {
 		this.width = width;
@@ -44,6 +45,7 @@ public class Texture implements OpenGLSurface {
 
 	public Texture(String path) throws IOException {
 		System.out.println("Loading texture: " + path);
+		this.path = path;
 
 		int width[] = new int[1];
 		int height[] = new int[1];
@@ -52,15 +54,6 @@ public class Texture implements OpenGLSurface {
 
 		this.width = width[0];
 		this.height = height[0];
-
-		// byte[] array = new byte[width * height * 4];
-		// for(int p = 0; p < width * height; p++){
-		// array[4*p + 0] = (byte)0xFF;
-		// array[4*p + 1] = (byte)0xFF;
-		// array[4*p + 2] = (byte)0xFF;
-		// array[4*p + 3] = (byte)0xFF;
-		// }
-		// ByteBuffer buffer = ByteBuffer.wrap(array);
 
 		id = glCreateTextures(GL_TEXTURE_2D);
 		bind();

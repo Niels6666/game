@@ -8,6 +8,6 @@ out vec4 out_Color;
 
 void main(){
 
-    out_Color = texture(img, texCoords);
+    out_Color = texelFetch(img, ivec2(texCoords * (textureSize(img, 0)-1) + 0.5), 0);
 
 }

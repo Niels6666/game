@@ -7,19 +7,14 @@ import java.util.List;
 import org.lwjgl.opengl.GL46C;
 
 import opengl.Texture;
+import opengl.TextureArray;
 import opengl.TextureAtlas;
 import opengl.VAO;
 import opengl.VBO;
 
 public enum Block {
-	AIR(false, false, 0, 0, false), 
-	STONE(), 
-	DIRT(), 
-	GRASS(), 
-	CANDLE(false, true, 4, 15, false), 
-	COAL(),
-	URANIUM(true, false, 0, 0, true),
-	LAVA(false, true, 3, 15, true);
+	AIR(false, false, 0, 0, false), STONE(), DIRT(), GRASS(), CANDLE(false, true, 4, 15, false), COAL(),
+	URANIUM(true, false, 0, 0, true), LAVA(false, true, 3, 15, true);
 
 	public final boolean isAnimated;
 	public final boolean isGlowing;
@@ -30,11 +25,11 @@ public enum Block {
 	public final Texture[] glowTextures;
 
 	public int blockID;
-	
+
 	private static List<Block> blocksFromID;
 
-	private Block(boolean isCollideable, boolean isAnimated, int animationLength, 
-			int animationSpeed, boolean isGlowing) {
+	private Block(boolean isCollideable, boolean isAnimated, int animationLength, int animationSpeed,
+			boolean isGlowing) {
 		this.isAnimated = isAnimated;
 		this.isGlowing = isGlowing;
 		this.isCollideable = isCollideable;
@@ -75,11 +70,11 @@ public enum Block {
 	static {
 		int counter = 0;
 		blocksFromID = new ArrayList<>();
-		
+
 		for (Block v : values()) {
 			v.blockID = counter;
 			counter = counter + (v.isAnimated ? v.animationLength : 1);
-			for(int k=0; k<(v.isAnimated ? v.animationLength : 1); k++) {
+			for (int k = 0; k < (v.isAnimated ? v.animationLength : 1); k++) {
 				blocksFromID.add(v);
 			}
 		}
@@ -90,8 +85,11 @@ public enum Block {
 	}
 
 	public static VBO blocksInfo;
-	public static TextureAtlas atlas;
-	public static TextureAtlas glowAtlas;
+//	public static TextureAtlas atlas;
+//	public static TextureAtlas glowAtlas;
+
+	public static TextureArray atlas;
+	public static TextureArray glowAtlas;
 
 	public static void createBlocksInfo() {
 		int[] data = new int[4 * Block.values().length];
@@ -109,7 +107,13 @@ public enum Block {
 		List.of(values()).forEach(v -> {
 			textures.addAll(List.of(v.textures));
 		});
-		atlas = new TextureAtlas(textures);
+		// atlas = new TextureAtlas(textures);
+		atlas = new TextureArray(20, 20, textures.size(), GL46C.GL_RGBA8, //
+				GL46C.GL_NEAREST, GL46C.GL_NEAREST);
+		for (int i = 0; i < textures.size(); i++) {
+			atlas.createLayer(i, textures.get(i).path);
+		}
+		atlas.genMipMaps();
 
 		List<Texture> glowTextures = new ArrayList<>();
 		List.of(values()).forEach(v -> {
@@ -117,14 +121,23 @@ public enum Block {
 				glowTextures.add(t);
 			}
 		});
-
-		glowAtlas = new TextureAtlas(glowTextures);
+		// glowAtlas = new TextureAtlas(glowTextures);
+		glowAtlas = new TextureArray(20, 20, glowTextures.size(), GL46C.GL_RGBA8, //
+				GL46C.GL_NEAREST, GL46C.GL_NEAREST);
+		for (int i = 0; i < glowTextures.size(); i++) {
+			if (glowTextures.get(i) == null) {
+				glowAtlas.clearLayer(i);
+			} else {
+				glowAtlas.createLayer(i, glowTextures.get(i).path);
+			}
+		}
+		glowAtlas.genMipMaps();
 	}
 
 	public static boolean isLight(int id) {
 		return id == CANDLE.blockID;
 	}
-	
+
 	public static Block blockFromID(int id) {
 		return blocksFromID.get(id);
 	}

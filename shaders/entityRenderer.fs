@@ -29,21 +29,21 @@ layout(std430, binding = 2) restrict readonly buffer LightBuffer {
 	BVHNode nodes[];
 };
 
+/////////////
+//altitudes
+/////////////
+layout(std430, binding = 6) restrict readonly buffer altitudesBuffer {
+	float altitudes[];
+};
+
 uniform float zoom;
 uniform vec2 cameraPos;
 uniform vec2 screenSize;
 uniform int time;
-uniform vec4 ambientLight;
+uniform vec4 surfaceAmbientLight;
+uniform vec4 depthAmbientLight;
 
 in vec2 texCoords;
-
-float getDynamicRadius(float radius) {
-	//float s = time + cos(time/60.0 * 0.12) + sin(time/60.0 * 4.456);
-	//s = 0.8f + 0.2f * cos(s);
-	return radius;// * s;
-	//Random r = new Random(System.nanoTime() / 50000);
-	//dynamicRadius = radius - r.nextFloat();
-}
 
 vec4 illumination(vec2 worldPos){
     if(nodes.length() == 0){
@@ -69,18 +69,17 @@ vec4 illumination(vec2 worldPos){
                 vec2 center = (n.min + n.max) * 0.5f;
                 vec2 toPixel = worldPos - center;
                 float d = length(toPixel);
-                float r = getDynamicRadius(n.radius);
+                float r = n.radius;
 				
                 float power = max(1.0f - d / r, 0.0);
+                float innerPower = max(1.0f - d / n.innerRadius, 0.0);
 
 				vec2 dir = n.direction;
 				float cosAngleHalf = n.angle;
 				
-				if(d > n.innerRadius){
-					if(dot(dir, toPixel) < cosAngleHalf*d){
-						power = 0;
-					}
-				}
+				power *= smoothstep(cosAngleHalf*d*0.8, cosAngleHalf*d, dot(dir, toPixel));
+				
+				power = max(power, innerPower);
 				
                	lightPower += power * unpackUnorm4x8(n.color);
             }
@@ -94,6 +93,7 @@ void main(){
     
     vec2 onScreenPixelCoords = gl_FragCoord.xy - screenSize / 2.0;
     vec2 worldCoords = onScreenPixelCoords / blockPixelHeight * zoom + cameraPos;
+    const ivec2 blockGlobalCoords = ivec2(floor(worldCoords));
 
     colorOutput = texelFetch(TextureAtlas, ivec2(texCoords * textureSize(TextureAtlas, 0)), 0);
 
@@ -101,9 +101,20 @@ void main(){
         discard;
     }
     
-    vec4 glowColor = texelFetch(TextureGlowAtlas, ivec2(texCoords * textureSize(TextureGlowAtlas, 0)), 0);
-    glowColor *= glowColor.a;
+    glowOutput = texelFetch(TextureGlowAtlas, ivec2(texCoords * textureSize(TextureGlowAtlas, 0)), 0);
+    glowOutput.grb *= glowOutput.a;
 
-    lightOutput = illumination(worldCoords) + ambientLight;
-    glowOutput = glowColor;
+    lightOutput = illumination(worldCoords);
+    float surfaceHeight = mix(
+			altitudes[blockGlobalCoords.x], 
+			altitudes[blockGlobalCoords.x+1],
+			fract(worldCoords.x) 
+		);
+
+	float surfaceGradient = smoothstep(
+								worldCoords.y - 20, 
+								worldCoords.y,
+								surfaceHeight
+							);
+	lightOutput += mix(depthAmbientLight, surfaceAmbientLight, surfaceGradient);
 }

@@ -82,5 +82,39 @@
 			<artifactId>joml</artifactId>
 			<version>${joml.version}</version>
 		</dependency>
+
+		<!-- https://mvnrepository.com/artifact/org.jbox2d/jbox2d-library 
+		<dependency>
+			<groupId>org.jbox2d</groupId>
+			<artifactId>jbox2d-library</artifactId>
+			<version>2.2.1.1</version>
+		</dependency>
+		-->
+
+		<!-- https://mvnrepository.com/artifact/com.badlogicgames.gdx/gdx-box2d -->
+		<dependency>
+			<groupId>com.badlogicgames.gdx</groupId>
+			<artifactId>gdx-box2d</artifactId>
+			<version>1.11.0</version>
+		</dependency>
+		
+		<!-- https://mvnrepository.com/artifact/com.badlogicgames.gdx/gdx-box2d-platform-->
+		<dependency>
+			<groupId>com.badlogicgames.gdx</groupId>
+			<artifactId>gdx-box2d-platform</artifactId>
+			<version>1.11.0</version>
+			<type>pom</type>
+			<scope>test</scope>
+		</dependency>
+ 		
+
+		<dependency>
+			<groupId>com.badlogicgames.gdx</groupId>
+			<artifactId>gdx-box2d-platform</artifactId>
+			<classifier>natives-desktop</classifier>
+			<version>1.11.0</version>
+			<scope>compile</scope>
+		</dependency>
+
 	</dependencies>
 </project>
